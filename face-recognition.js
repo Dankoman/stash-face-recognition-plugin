@@ -4,7 +4,7 @@
     // Plugin-konfiguration
     const PLUGIN_ID = 'face-recognition';
     let pluginSettings = {
-        api_url: 'http://localhost:5000',
+        api_url: 'http://192.168.0.140:5000',
         api_timeout: 30,
         show_confidence: true,
         min_confidence: 30
