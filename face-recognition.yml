@@ -1,0 +1,29 @@
+name: Face Recognition Plugin
+description: Plugin för ansiktsigenkänning som kan pausa scener, extrahera bilder och visa bounding boxes med namn som overlay
+version: 1.0.0
+url: https://github.com/Dankoman/face_extractor
+
+ui:
+  javascript:
+    - face-recognition.js
+  css:
+    - face-recognition.css
+
+settings:
+  api_url:
+    displayName: API URL
+    description: URL till din face_extractor webtjänst (t.ex. http://localhost:5000)
+    type: STRING
+  api_timeout:
+    displayName: API Timeout (sekunder)
+    description: Timeout för API-anrop i sekunder
+    type: NUMBER
+  show_confidence:
+    displayName: Visa konfidensgrad
+    description: Visa konfidensgrad i procent för identifierade ansikten
+    type: BOOLEAN
+  min_confidence:
+    displayName: Minimum konfidensgrad
+    description: Minimum konfidensgrad för att visa identifiering (0-100)
+    type: NUMBER
+
