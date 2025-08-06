@@ -170,5 +170,5 @@ Detta plugin är baserat på ditt befintliga face_extractor projekt och följer 
 
 ## Support
 
-För support och buggrapporter, skapa ett issue i ditt face_extractor repository eller kontakta utvecklaren.
+För support och buggrapporter, skapa en issue i ditt face_extractor repository eller kontakta utvecklaren.
 
