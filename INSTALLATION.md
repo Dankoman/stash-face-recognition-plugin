@@ -1,94 +1,100 @@
-# Installationsguide - Stash Face Recognition Plugin
+# Installation Guide - Stash Face Recognition Plugin v2.0
 
-Denna guide hjälper dig att installera och konfigurera Face Recognition Plugin för Stash App.
+Denna guide hjälper dig att installera och konfigurera Face Recognition Plugin v2.0 för Stash App.
 
 ## Förutsättningar
 
-- Stash App installerat och konfigurerat
-- Ditt befintliga `face_extractor` projekt
-- Python 3.7+ med nödvändiga dependencies
-- Webbläsare med JavaScript aktiverat
+### 1. Stash App
+- Stash App installerat och fungerande
+- Tillgång till Stash plugins-katalog
+- Administratörsbehörigheter för att starta om Stash
+
+### 2. Face Extractor API
+- Ditt befintliga face_extractor repository
+- Python-miljö med nödvändiga dependencies
+- Tränad modell för ansiktsigenkänning
 
 ## Steg 1: Förbered Face Extractor API
 
-### 1.1 Uppdatera ditt befintliga projekt
+### 1.1 Uppdatera API-endpoint (om du använder v1.0)
+
+Om du redan har v1.0 av pluginet installerat, behöver du inte uppdatera `api_endpoint.py` - den fungerar med v2.0.
+
+Om du inte har API-endpointen än, använd filen från det ursprungliga plugin-paketet.
+
+### 1.2 Starta Face Extractor servern
 
 ```bash
-# Navigera till ditt face_extractor repo
+# Navigera till ditt face_extractor repository
 cd /path/to/face_extractor
 
-# Backup av befintlig app.py (valfritt)
-cp app.py app.py.backup
+# Aktivera din Python-miljö (om du använder virtual environment)
+source venv/bin/activate  # Linux/macOS
+# eller
+venv\Scripts\activate     # Windows
 
-# Kopiera den nya API-filen
-# (Ersätt sökvägen med var du sparade api_endpoint.py)
-cp /path/to/api_endpoint.py ./
-```
-
-### 1.2 Installera CORS-stöd
-
-```bash
-# Installera flask-cors för att tillåta cross-origin requests
-pip install flask-cors
-```
-
-### 1.3 Testa API:et
-
-```bash
-# Starta servern med API-stöd
+# Starta servern
 python api_endpoint.py
 ```
 
-Du bör se utskrift som:
-```
-🚀 Startar Face Extractor API...
-📊 Modell: arcface_work-ppic/face_knn_arcface_ppic.pkl
-🎯 Threshold: 0.2
-👥 Klasser: [antal klasser]
-🌐 API-endpoints:
-   POST /api/detect - Ansiktsigenkänning
-   GET  /api/health - Hälsokontroll
-   GET  /api/config - Hämta konfiguration
-   POST /api/config - Uppdatera konfiguration
-📱 Webbgränssnitt: http://localhost:5000
-```
+Servern bör starta på `http://localhost:5000` eller din konfigurerade adress.
 
-### 1.4 Verifiera API-funktionalitet
-
-Öppna en ny terminal och testa:
+### 1.3 Testa API-endpointen
 
 ```bash
-# Testa hälsokontroll
+# Testa att API:et svarar
 curl http://localhost:5000/api/health
 
-# Du bör få ett JSON-svar som:
-# {"status":"ok","service":"face_extractor","version":"1.0.0",...}
+# Förväntat svar: {"status": "ok"}
 ```
 
-## Steg 2: Installera Plugin i Stash
+## Steg 2: Installera Plugin v2.0
 
 ### 2.1 Hitta Stash plugins-katalog
 
-Stash plugins lagras vanligtvis i:
-- **Windows**: `%APPDATA%\stash\plugins\`
-- **macOS**: `~/Library/Application Support/stash/plugins/`
-- **Linux**: `~/.stash/plugins/`
+Stash plugins-katalogen finns vanligtvis på:
 
-Eller kontrollera i Stash under **Settings > Configuration > Paths**.
+**Windows:**
+```
+%APPDATA%\stash\plugins\
+```
 
-### 2.2 Kopiera plugin-filer
+**macOS:**
+```
+~/Library/Application Support/stash/plugins/
+```
+
+**Linux:**
+```
+~/.stash/plugins/
+```
+
+**Docker:**
+```
+/config/plugins/  (inuti containern)
+```
+
+### 2.2 Backup befintlig plugin (om du har v1.0)
+
+```bash
+# Backup av befintlig plugin
+mv /path/to/stash/plugins/stash-face-recognition-plugin /path/to/stash/plugins/stash-face-recognition-plugin-v1-backup
+```
+
+### 2.3 Kopiera nya plugin-filer
 
 ```bash
 # Kopiera hela plugin-mappen till Stash plugins-katalog
-cp -r /path/to/stash-face-recognition-plugin /path/to/stash/plugins/
+cp -r /path/to/stash-face-recognition-plugin-v2 /path/to/stash/plugins/
 
-# Alternativt, skapa symbolisk länk (Linux/macOS)
-ln -s /path/to/stash-face-recognition-plugin /path/to/stash/plugins/face-recognition
+# Alternativt, byt namn för att matcha v1.0 strukturen
+mv /path/to/stash/plugins/stash-face-recognition-plugin-v2 /path/to/stash/plugins/stash-face-recognition-plugin
 ```
 
-### 2.3 Verifiera filstruktur
+### 2.4 Verifiera filstruktur
 
-Din plugins-katalog bör nu innehålla:
+Din plugins-katalog bör nu se ut så här:
+
 ```
 plugins/
 └── stash-face-recognition-plugin/
@@ -99,159 +105,288 @@ plugins/
     └── INSTALLATION.md
 ```
 
-## Steg 3: Aktivera Plugin i Stash
+## Steg 3: Konfigurera Content Security Policy
 
-### 3.1 Öppna Stash webbgränssnitt
+### 3.1 Uppdatera CSP-inställningar
 
-Navigera till din Stash-installation (vanligtvis `http://localhost:9999`).
+Öppna `face-recognition.yml` och uppdatera CSP-sektionen med din API-URL:
 
-### 3.2 Gå till Plugin-inställningar
+```yaml
+ui:
+  csp:
+    connect-src:
+      - http://192.168.0.140:5000  # <-- Ändra till din API-URL
+      - http://localhost:5000
+      - http://127.0.0.1:5000
+```
 
-1. Klicka på **Settings** (kugghjulsikon)
-2. Välj **Plugins** i sidomenyn
-3. Klicka på **Available Plugins**
+**Viktigt:** Ersätt `192.168.0.140:5000` med den faktiska IP-adressen och porten där din face_extractor API körs.
 
-### 3.3 Lägg till plugin
+### 3.2 Spara och validera YAML
 
-1. Klicka på **Add Source** eller **Reload Plugins**
-2. Du bör se "Face Recognition Plugin" i listan
-3. Klicka på **Install** eller aktivera plugin-switchen
+Kontrollera att YAML-syntaxen är korrekt:
 
-### 3.4 Konfigurera plugin-inställningar
+```bash
+# Testa YAML-syntax (om du har python installerat)
+python -c "import yaml; yaml.safe_load(open('face-recognition.yml'))"
+```
 
-1. Hitta "Face Recognition Plugin" i plugin-listan
-2. Klicka på **Settings** eller kugghjulsikonen
-3. Ange följande inställningar:
-   - **API URL**: `http://localhost:5000` (eller din server-URL)
-   - **API Timeout**: `30` (sekunder)
-   - **Minimum konfidensgrad**: `30` (procent)
-   - **Visa konfidensgrad**: ✓ (markerad)
+## Steg 4: Starta om Stash
 
-## Steg 4: Testa Plugin
+### 4.1 Stäng Stash helt
 
-### 4.1 Öppna en video
+- Stäng webbläsarflikar med Stash
+- Stoppa Stash-processen/service
+- Vänta några sekunder
 
-1. Navigera till en video i ditt Stash-bibliotek
-2. Klicka för att öppna videospelaren
+### 4.2 Starta Stash igen
 
-### 4.2 Använd plugin
+- Starta Stash-applikationen
+- Vänta tills den är helt laddad
+- Öppna Stash i webbläsaren
 
-1. Du bör se en blå knapp "Identifiera Ansikten" i övre högra hörnet av videospelaren
-2. Pausa videon vid en punkt där ansikten syns tydligt
-3. Klicka på "Identifiera Ansikten"-knappen
-4. Vänta medan bilden analyseras (loading-indikator visas)
-5. Resultat visas som färgkodade bounding boxes över ansikten
+## Steg 5: Aktivera Plugin i Stash
 
-### 4.3 Testa inställningar
+### 5.1 Navigera till Plugin-inställningar
 
-1. Högerklicka på "Identifiera Ansikten"-knappen
-2. Inställningspanelen öppnas
-3. Testa att ändra API-URL eller konfidensgrad
-4. Klicka "Spara" för att tillämpa ändringar
+1. Öppna Stash i webbläsaren
+2. Gå till **Settings** (Inställningar)
+3. Klicka på **Plugins**
+
+### 5.2 Hitta och aktivera plugin
+
+1. Leta efter "Face Recognition Plugin" i listan
+2. Om den inte visas, klicka på "Reload Plugins" eller "Check for Updates"
+3. Aktivera pluginet med växlingsknappen eller "Install"-knappen
+
+### 5.3 Verifiera installation
+
+Du bör se:
+- Plugin-namn: "Face Recognition Plugin"
+- Version: "2.0.0"
+- Status: "Enabled" eller "Active"
+
+## Steg 6: Konfigurera Plugin-inställningar
+
+### 6.1 Navigera till en video
+
+1. Gå till **Scenes** i Stash
+2. Öppna en video
+3. Leta efter "Identifiera Ansikten"-knappen (vanligtvis i övre högra hörnet av videospelaren)
+
+### 6.2 Öppna plugin-inställningar
+
+1. **Högerklicka** på "Identifiera Ansikten"-knappen
+2. Inställningspanelen bör öppnas
+
+### 6.3 Konfigurera grundläggande inställningar
+
+**API URL:**
+```
+http://192.168.0.140:5000
+```
+(Ersätt med din faktiska API-URL)
+
+**Timeout (sekunder):**
+```
+30
+```
+
+**Minimum konfidensgrad (%):**
+```
+30
+```
+
+**Visa konfidensgrad:**
+```
+✓ (markerad)
+```
+
+### 6.4 Konfigurera nya performer-inställningar
+
+**Lägg till performers automatiskt:**
+```
+✓ (markerad för automatisk tillägg)
+```
+
+**Skapa nya performers:**
+```
+✓ (markerad för att skapa nya poster)
+```
+
+### 6.5 Spara inställningar
+
+Klicka på "Spara"-knappen i inställningspanelen.
+
+## Steg 7: Testa Installation
+
+### 7.1 Grundläggande test
+
+1. Pausa en video vid en punkt där ansikten syns
+2. Klicka på "Identifiera Ansikten"-knappen
+3. Vänta på analys (loading-indikator bör visas)
+4. Kontrollera att bounding boxes visas över identifierade ansikten
+
+### 7.2 Testa performer-tillägg
+
+1. Efter ansiktsigenkänning, klicka på "+" knappen på en bounding box
+2. Kontrollera att ett bekräftelsemeddelande visas
+3. Gå till scen-informationen och verifiera att performern lades till
+
+### 7.3 Testa bulk-tillägg
+
+1. Om flera ansikten identifieras, klicka på "Lägg till alla (X)"-knappen
+2. Kontrollera att alla performers läggs till scenen
 
 ## Felsökning
 
 ### Plugin visas inte i Stash
 
-**Problem**: Plugin syns inte i Available Plugins-listan.
+**Problem:** Plugin dyker inte upp i Settings > Plugins
 
-**Lösningar**:
-1. Kontrollera att `face-recognition.yml` finns och har korrekt syntax
-2. Verifiera filbehörigheter (läsbar för Stash-processen)
+**Lösningar:**
+1. Kontrollera filsökvägar och behörigheter
+2. Validera YAML-syntax i `face-recognition.yml`
 3. Starta om Stash helt
 4. Kontrollera Stash-loggar för felmeddelanden
 
-### Plugin-knapp visas inte på videosidor
+### CSP-fel i webbläsaren
 
-**Problem**: Knappen "Identifiera Ansikten" syns inte.
+**Problem:** "Refused to connect" fel i browser console
 
-**Lösningar**:
-1. Kontrollera att plugin är aktiverat i Settings > Plugins
-2. Ladda om sidan (Ctrl+F5 eller Cmd+Shift+R)
-3. Öppna webbläsarens utvecklarverktyg och leta efter JavaScript-fel
-4. Testa på en annan video
+**Lösningar:**
+1. Uppdatera CSP-inställningar i `face-recognition.yml`
+2. Lägg till din exakta API-URL i `connect-src` listan
+3. Starta om Stash efter CSP-ändringar
+4. Kontrollera att API-URL:en är korrekt
 
 ### API-anslutningsfel
 
-**Problem**: "API-fel" eller "Timeout" meddelanden.
+**Problem:** Plugin kan inte ansluta till face_extractor API
 
-**Lösningar**:
-1. Kontrollera att face_extractor servern körs:
-   ```bash
-   curl http://localhost:5000/api/health
-   ```
-2. Verifiera API-URL i plugin-inställningar
+**Lösningar:**
+1. Kontrollera att face_extractor servern körs
+2. Testa API-URL:en manuellt i webbläsaren
 3. Kontrollera brandväggsinställningar
-4. Testa med längre timeout-värde
+4. Verifiera nätverksanslutning mellan Stash och API-server
 
-### Inga ansikten hittas
+### GraphQL-fel
 
-**Problem**: "Inga ansikten hittades" trots synliga ansikten.
+**Problem:** Fel vid tillägg av performers till scener
 
-**Lösningar**:
-1. Testa med bättre belysning/bildkvalitet
-2. Pausa vid en annan tidpunkt i videon
-3. Kontrollera att face_extractor modellen är korrekt laddad
-4. Sänk minimum konfidensgrad i inställningar
+**Lösningar:**
+1. Kontrollera att du är på en scen-sida (URL innehåller `/scenes/[ID]`)
+2. Testa att skapa performers manuellt i Stash först
+3. Kontrollera webbläsarens konsol för specifika GraphQL-fel
+4. Verifiera Stash-version kompatibilitet
 
 ### Prestanda-problem
 
-**Problem**: Plugin är långsamt eller hänger sig.
+**Problem:** Långsam respons eller timeout
 
-**Lösningar**:
-1. Öka timeout-värdet i inställningar
+**Lösningar:**
+1. Öka timeout-värdet i plugin-inställningar
 2. Optimera face_extractor modellen
-3. Använd mindre videoupplösning
-4. Kontrollera systemresurser (CPU/RAM)
+3. Kontrollera nätverkshastighet
+4. Minska bildkvalitet om möjligt
 
 ## Avancerad konfiguration
 
-### Anpassa API-URL för fjärrserver
+### Anpassad API-endpoint
 
-Om din face_extractor körs på en annan server:
+Om du använder en annan API-struktur, kan du modifiera `face-recognition.js`:
 
-```yaml
-# I plugin-inställningar
-API URL: http://192.168.1.100:5000
+```javascript
+// Ändra API-endpoint URL
+const response = await fetch(`${pluginSettings.api_url}/custom/detect`, {
+    // ... resten av konfigurationen
+});
 ```
 
-Säkerställ att servern lyssnar på alla interfaces:
-```python
-# I api_endpoint.py
-app.run(host='0.0.0.0', port=5000, debug=False)
+### Anpassad styling
+
+Modifiera `face-recognition.css` för att ändra utseende:
+
+```css
+/* Ändra färger för bounding boxes */
+.face-recognition-box.high-confidence {
+    border-color: #your-color; /* Anpassad färg */
+}
 ```
 
-### Anpassa utseende
+### Anpassade GraphQL-queries
 
-Redigera `face-recognition.css` för att ändra:
-- Färger på bounding boxes
-- Fontstorlek på labels
-- Knapp-styling
-- Overlay-transparens
+Modifiera GraphQL-queries i `face-recognition.js` för andra datastrukturer:
 
-### Debugging
+```javascript
+// Exempel: Lägg till fler fält i performer-sökning
+const query = `
+    query FindPerformers($filter: String) {
+        findPerformers(
+            performer_filter: { name: { value: $filter, modifier: EQUALS } }
+            filter: { per_page: 1 }
+        ) {
+            performers {
+                id
+                name
+                aliases
+                birthdate
+            }
+        }
+    }
+`;
+```
 
-Aktivera utvecklarverktyg i webbläsaren:
-1. Tryck F12 eller högerklicka > "Inspect"
-2. Gå till Console-fliken
-3. Leta efter meddelanden från `faceRecognitionPlugin`
-4. Kontrollera Network-fliken för API-anrop
+## Support och underhåll
 
-## Support
+### Loggar och debugging
 
-Om du stöter på problem:
+**Stash-loggar:**
+- Kontrollera Stash-applikationens loggar för plugin-relaterade fel
+- Vanligtvis i `~/.stash/stash.log` eller liknande
 
-1. Kontrollera denna guide igen
-2. Verifiera att alla förutsättningar är uppfyllda
-3. Testa varje komponent separat (API, plugin, Stash)
-4. Samla felmeddelanden från webbläsarkonsolen och Stash-loggar
-5. Skapa ett issue i ditt face_extractor repository med detaljerad information
+**Webbläsarkonsol:**
+- Öppna Developer Tools (F12)
+- Kontrollera Console-fliken för JavaScript-fel
+- Kontrollera Network-fliken för API-anrop
 
-## Nästa steg
+**Face Extractor loggar:**
+- Kontrollera terminal/konsol där face_extractor körs
+- Leta efter HTTP-anrop och eventuella fel
 
-När pluginet fungerar kan du:
-- Träna din modell med fler ansikten för bättre noggrannhet
-- Anpassa CSS för personligt utseende
-- Utöka funktionalitet med fler API-endpoints
-- Integrera med andra Stash-plugins
+### Uppdateringar
+
+För framtida uppdateringar:
+1. Backup befintlig plugin-mapp
+2. Ersätt med nya filer
+3. Uppdatera konfiguration vid behov
+4. Starta om Stash
+
+### Backup och återställning
+
+**Backup:**
+```bash
+# Backup av plugin-mapp
+cp -r /path/to/stash/plugins/stash-face-recognition-plugin /path/to/backup/
+
+# Backup av inställningar (lagras i webbläsaren)
+# Exportera från plugin-inställningar eller använd webbläsarens utvecklarverktyg
+```
+
+**Återställning:**
+```bash
+# Återställ plugin-mapp
+cp -r /path/to/backup/stash-face-recognition-plugin /path/to/stash/plugins/
+```
+
+## Slutsats
+
+Efter att ha följt denna guide bör du ha:
+
+✅ Face Recognition Plugin v2.0 installerat och aktiverat i Stash
+✅ API-anslutning konfigurerad och fungerande
+✅ Performer-tillägg funktionalitet aktiverad
+✅ Plugin-inställningar anpassade efter dina behov
+
+Om du stöter på problem, kontrollera felsökningssektionen eller skapa ett issue i ditt face_extractor repository med detaljerad information om problemet.
 
