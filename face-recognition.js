@@ -4,7 +4,7 @@
     // Plugin-konfiguration
     const PLUGIN_ID = 'face-recognition';
     let pluginSettings = {
-        api_url: 'http://localhost:5000',
+        api_url: 'http://192.168.0.140:5000',
         api_timeout: 30,
         show_confidence: true,
         min_confidence: 30,
@@ -62,7 +62,8 @@
             });
 
             if (!response.ok) {
-                throw new Error(`GraphQL request failed: ${response.status}`);
+                const errorText = await response.text();
+                throw new Error(`GraphQL request failed: ${response.status} ${response.statusText} - ${errorText}`);
             }
 
             const result = await response.json();
@@ -99,6 +100,7 @@
             return data.findPerformers.performers.length > 0 ? data.findPerformers.performers[0] : null;
         } catch (error) {
             console.error('Error finding performer:', error);
+            // Return null if performer not found or on error
             return null;
         }
     }
@@ -186,14 +188,27 @@
             // Först, försök hitta befintlig performer
             let performer = await findPerformerByName(performerName);
             
-            // Om performer inte finns och vi ska skapa nya
-            if (!performer && pluginSettings.create_new_performers) {
-                performer = await createPerformer(performerName);
-                showMessage(`Skapade ny performer: ${performerName}`, 'success');
-            }
-            
+            // Om performer inte hittades
             if (!performer) {
-                throw new Error(`Performer "${performerName}" hittades inte och skapande av nya performers är inaktiverat`);
+                if (pluginSettings.create_new_performers) {
+                    try {
+                        performer = await createPerformer(performerName);
+                        showMessage(`Skapade ny performer: ${performerName}`, 'success');
+                    } catch (createError) {
+                        // Specifik hantering för om skapandet misslyckas (t.ex. pga race condition)
+                        if (createError.message.includes('already exists')) {
+                            showMessage(`Performer '${performerName}' skapades av annan process, försöker hitta igen.`, 'info');
+                            performer = await findPerformerByName(performerName); // Försök hitta igen
+                            if (!performer) {
+                                throw new Error(`Kunde inte hitta eller skapa performer '${performerName}'.`);
+                            }
+                        } else {
+                            throw createError; // Annat fel vid skapande
+                        }
+                    }
+                } else {
+                    throw new Error(`Performer '${performerName}' hittades inte och skapande av nya performers är inaktiverat.`);
+                }
             }
 
             // Hämta aktuella performers för scenen
@@ -286,7 +301,8 @@
             clearTimeout(timeoutId);
 
             if (!response.ok) {
-                throw new Error(`API-fel: ${response.status} ${response.statusText}`);
+                const errorText = await response.text();
+                throw new Error(`API-fel: ${response.status} ${response.statusText} - ${errorText}`);
             }
 
             return await response.json();
@@ -719,4 +735,3 @@
     initPlugin();
 
 })();
-
