@@ -79,31 +79,46 @@
         }
     }
 
-    // Sök efter befintlig performer baserat på namn
-    async function findPerformerByName(name) {
-        const query = `
-            query FindPerformers($filter: String) {
-                findPerformers(
-                    performer_filter: { name: { value: $filter, modifier: EQUALS } }
-                    filter: { per_page: 1 }
-                ) {
-                    performers {
-                        id
-                        name
-                    }
-                }
-            }
-        `;
-
-        try {
-            const data = await stashGraphQL(query, { filter: name });
-            return data.findPerformers.performers.length > 0 ? data.findPerformers.performers[0] : null;
-        } catch (error) {
-            console.error('Error finding performer:', error);
-            // Return null if performer not found or on error
-            return null;
+// Sök performer på namn eller alias (två steg)
+async function findPerformerByName(name) {
+    /* --- 1) exakt match på fältet name ----------------------------------- */
+    const qName = /* GraphQL */ `
+      query FindByName($v:String!) {
+        findPerformers(
+          performer_filter:{ name:{ value:$v, modifier:EQUALS } }
+          filter:{ per_page:1 }
+        ){
+          performers { id name }
         }
+      }`.trim();
+
+    try {
+        // försök med name
+        let data = await stashGraphQL(qName, { v: name });
+        if (data.findPerformers.performers.length)
+            return data.findPerformers.performers[0];
+
+        /* --- 2) ingen träff – prova exakt match på fältet alias ------------- */
+        const qAlias = /* GraphQL */ `
+          query FindByAlias($v:String!){
+            findPerformers(
+              performer_filter:{ aliases:{ value:$v, modifier:EQUALS } }
+              filter:{ per_page:1 }
+            ){
+              performers { id name }
+            }
+          }`.trim();
+
+        data = await stashGraphQL(qAlias, { v: name });
+        return data.findPerformers.performers[0] ?? null;
+
+    } catch (e) {
+        console.error('Error finding performer:', e);
+        return null;
     }
+}
+
+
 
     // Skapa ny performer
     async function createPerformer(name) {
@@ -735,3 +750,4 @@
     initPlugin();
 
 })();
+

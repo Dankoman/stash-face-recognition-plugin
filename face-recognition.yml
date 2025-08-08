@@ -13,8 +13,8 @@ ui:
   csp:
     connect-src:
       - http://192.168.0.140:5000
-      - http://localhost:5000
-      - http://127.0.0.1:5000
+      - http://localhost:9999
+      - http://127.0.0.1:9999
 
 settings:
   api_url:
