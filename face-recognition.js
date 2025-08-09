@@ -9,7 +9,8 @@
         show_confidence: true,
         min_confidence: 30,
         auto_add_performers: false,
-        create_new_performers: false
+        create_new_performers: false,
+        overlay_auto_hide_ms: 15000
     };
 
     // Plugin-tillstånd
@@ -50,16 +51,22 @@
     // GraphQL API-anrop till Stash
     async function stashGraphQL(query, variables = {}) {
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), pluginSettings.api_timeout * 1000);
             const response = await fetch('/graphql', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'same-origin',
                 body: JSON.stringify({
                     query: query,
                     variables: variables
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -74,6 +81,9 @@
 
             return result.data;
         } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('GraphQL timeout');
+            }
             console.error('Stash GraphQL error:', error);
             throw error;
         }
@@ -249,6 +259,63 @@ async function findPerformerByName(name) {
         }
     }
 
+    // Ny: Lägg till flera performers i ett svep
+    async function addPerformersToSceneBulk(performerNames, sceneId) {
+        try {
+            if (!Array.isArray(performerNames) || performerNames.length === 0) return;
+
+            // Hämta scen-info en gång
+            const sceneInfo = await getSceneInfo(sceneId);
+            const currentPerformerIds = new Set(sceneInfo.performers.map(p => p.id));
+
+            const resultingIds = new Set(currentPerformerIds);
+            const failed = [];
+
+            for (const name of performerNames) {
+                try {
+                    let performer = await findPerformerByName(name);
+                    if (!performer) {
+                        if (pluginSettings.create_new_performers) {
+                            try {
+                                performer = await createPerformer(name);
+                            } catch (createError) {
+                                if (createError.message.includes('already exists')) {
+                                    performer = await findPerformerByName(name);
+                                } else {
+                                    throw createError;
+                                }
+                            }
+                        } else {
+                            failed.push({ name, reason: 'saknas och skapa nya är inaktiverat' });
+                            continue;
+                        }
+                    }
+                    if (performer && !resultingIds.has(performer.id)) {
+                        resultingIds.add(performer.id);
+                    }
+                } catch (e) {
+                    failed.push({ name, reason: e.message || 'okänt fel' });
+                }
+            }
+
+            if (resultingIds.size === currentPerformerIds.size) {
+                showMessage('Inga nya performers att lägga till', 'info');
+                return;
+            }
+
+            await updateScenePerformers(sceneId, Array.from(resultingIds));
+            const addedCount = resultingIds.size - currentPerformerIds.size;
+            showMessage(`Lade till ${addedCount} performer(s) till scenen`, 'success');
+
+            if (failed.length) {
+                showMessage(`Kunde inte lägga till ${failed.length} st: ${failed.map(f => f.name).join(', ')}`, 'error');
+            }
+        } catch (error) {
+            console.error('Bulk add error:', error);
+            showMessage(`Fel vid bulk-tillägg: ${error.message}`, 'error');
+        }
+    }
+
     // Hitta video-elementet på sidan
     function findVideoElement() {
         return document.querySelector('video') || document.querySelector('.video-js video');
@@ -294,7 +361,23 @@ async function findPerformerByName(name) {
     // Konvertera canvas till blob
     function canvasToBlob(canvas) {
         return new Promise((resolve) => {
-            canvas.toBlob(resolve, 'image/jpeg', 0.8);
+            if (canvas.toBlob) {
+                canvas.toBlob(async (blob) => {
+                    if (blob) {
+                        resolve(blob);
+                    } else {
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                        const fetched = await fetch(dataUrl);
+                        resolve(await fetched.blob());
+                    }
+                }, 'image/jpeg', 0.8);
+            } else {
+                (async () => {
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    const fetched = await fetch(dataUrl);
+                    resolve(await fetched.blob());
+                })();
+            }
         });
     }
 
@@ -461,9 +544,8 @@ async function findPerformerByName(name) {
             const sceneId = getCurrentSceneId();
             if (sceneId) {
                 const knownFaces = filteredFaces.filter(face => face.name !== 'UNKNOWN');
-                knownFaces.forEach(face => {
-                    addPerformerToScene(face.name, sceneId);
-                });
+                const names = knownFaces.map(f => f.name);
+                addPerformersToSceneBulk(names, sceneId);
             }
         }
         
@@ -473,10 +555,12 @@ async function findPerformerByName(name) {
             createBulkAddButton(knownFaces);
         }
         
-        // Auto-remove overlay efter 15 sekunder
-        setTimeout(() => {
-            removeOverlay();
-        }, 15000);
+        // Auto-remove overlay efter konfigurerad tid
+        if (pluginSettings.overlay_auto_hide_ms > 0) {
+            setTimeout(() => {
+                removeOverlay();
+            }, pluginSettings.overlay_auto_hide_ms);
+        }
     }
 
     // Skapa knapp för att lägga till alla identifierade personer
@@ -487,9 +571,8 @@ async function findPerformerByName(name) {
         bulkButton.onclick = () => {
             const sceneId = getCurrentSceneId();
             if (sceneId) {
-                knownFaces.forEach(face => {
-                    addPerformerToScene(face.name, sceneId);
-                });
+                const names = knownFaces.map(face => face.name);
+                addPerformersToSceneBulk(names, sceneId);
             }
         };
         
@@ -524,6 +607,8 @@ async function findPerformerByName(name) {
         const messageEl = document.createElement('div');
         messageEl.className = `face-recognition-message face-recognition-${type}`;
         messageEl.textContent = message;
+        messageEl.setAttribute('role', 'status');
+        messageEl.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
         
         // Styling baserat på typ
         const styles = {
@@ -626,18 +711,21 @@ async function findPerformerByName(name) {
             
             <label>Minimum konfidensgrad (%):</label>
             <input type="number" id="fr-min-confidence" value="${pluginSettings.min_confidence}" min="0" max="100">
+
+            <label>Overlay auto-hide (ms, 0 = aldrig):</label>
+            <input type="number" id="fr-overlay-hide" value="${pluginSettings.overlay_auto_hide_ms}" min="0" max="600000">
             
-            <label>
+            <label class="checkbox-row">
                 <input type="checkbox" id="fr-show-confidence" ${pluginSettings.show_confidence ? 'checked' : ''}>
                 Visa konfidensgrad
             </label>
             
-            <label>
+            <label class="checkbox-row">
                 <input type="checkbox" id="fr-auto-add" ${pluginSettings.auto_add_performers ? 'checked' : ''}>
                 Lägg till performers automatiskt
             </label>
             
-            <label>
+            <label class="checkbox-row">
                 <input type="checkbox" id="fr-create-new" ${pluginSettings.create_new_performers ? 'checked' : ''}>
                 Skapa nya performers för okända ansikten
             </label>
@@ -675,6 +763,7 @@ async function findPerformerByName(name) {
         pluginSettings.api_url = document.getElementById('fr-api-url').value;
         pluginSettings.api_timeout = parseInt(document.getElementById('fr-timeout').value);
         pluginSettings.min_confidence = parseInt(document.getElementById('fr-min-confidence').value);
+        pluginSettings.overlay_auto_hide_ms = parseInt(document.getElementById('fr-overlay-hide').value);
         pluginSettings.show_confidence = document.getElementById('fr-show-confidence').checked;
         pluginSettings.auto_add_performers = document.getElementById('fr-auto-add').checked;
         pluginSettings.create_new_performers = document.getElementById('fr-create-new').checked;
@@ -723,9 +812,15 @@ async function findPerformerByName(name) {
             addPluginButton();
         }
         
-        // Observera DOM-ändringar för att lägga till knapp på nya sidor
+        // Observera DOM-ändringar för att lägga till knapp på nya sidor (debounce)
+        let addButtonScheduleId = null;
         const observer = new MutationObserver(() => {
-            setTimeout(addPluginButton, 1000);
+            if (addButtonScheduleId == null) {
+                addButtonScheduleId = setTimeout(() => {
+                    addPluginButton();
+                    addButtonScheduleId = null;
+                }, 500);
+            }
         });
         
         observer.observe(document.body, {

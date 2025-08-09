@@ -226,7 +226,7 @@
   transform: scale(1.2);
 }
 
-.face-recognition-settings label:has(input[type="checkbox"]) {
+.face-recognition-settings label.checkbox-row {
   display: flex;
   align-items: center;
   cursor: pointer;
@@ -356,5 +356,18 @@
 
 .face-recognition-box:hover .face-recognition-label {
   background: rgba(0, 0, 0, 0.9);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .face-recognition-box,
+  .face-recognition-message,
+  .face-recognition-settings,
+  .face-recognition-add-button,
+  .face-recognition-bulk-button,
+  .face-recognition-button {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
