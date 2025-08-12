@@ -1,6 +1,7 @@
-// face-recognition.js — hover‑preview via backend‑proxy + återställd högerklick‑settings
-// Denna version hämtar bilder via ditt API (proxy) för att undvika CORS/422/fetch-hook konflikt i Stash UI.
-// Lägg till motsvarande endpoints i api_endpoint.py (se chat‑svar). Högerklick på knappen öppnar settings.
+// face-recognition.js — bytes‑mode bildhämtning via backend‑proxy (CSP‑safe)
+// Den här versionen sätter <img>.src direkt till ditt API med `format=bytes`,
+// så att bilden levereras från samma origin som API:et (och inte blockeras av Stash UI:s CSP).
+// Högerklick på knappen öppnar en enkel inställningspanel.
 
 (function(){
   const LS_KEY = 'face_recognition_plugin_settings';
@@ -15,15 +16,15 @@
     create_new_performers: false,
     max_suggestions: 3,
     image_source: 'both', // local|stashdb|both (skickas till backend)
-    stashdb_endpoint: 'https://stashdb.org/graphql',
-    stashdb_api_key: ''
+    stashdb_endpoint: 'https://stashdb.org/graphql'
+    // stashdb_api_key hanteras på backend via env
   };
 
   function loadSettings(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw) pluginSettings={...pluginSettings,...JSON.parse(raw)};}catch{} }
   function saveSettings(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{} }
   function notify(msg,isErr=false){ const el=document.createElement('div'); el.textContent=msg; Object.assign(el.style,{position:'fixed',bottom:'16px',right:'16px',background:isErr?'#b91c1c':'#166534',color:'#fff',padding:'10px 12px',borderRadius:'10px',zIndex:10000}); document.body.appendChild(el); setTimeout(()=>el.remove(),2200); }
 
-  // ---------------- Settings panel (för högerklick) ----------------
+  // ---------------- Settings panel (högerklick) ----------------
   function createSettingsPanel(){
     if (document.querySelector('.fr-settings-panel')) return; // en instans åt gången
     const wrap = document.createElement('div');
@@ -64,9 +65,6 @@
         <label>StashDB endpoint (proxy använder denna):</label>
         <input type="text" id="fr-stashdb-endpoint" value="${pluginSettings.stashdb_endpoint}">
 
-        <label>StashDB API‑nyckel (lagras på backend, rekommenderas):</label>
-        <input type="text" id="fr-stashdb-apikey" value="${pluginSettings.stashdb_api_key}">
-
         <div class="fr-sp-actions">
           <button type="button" id="fr-sp-save">Spara</button>
           <button type="button" id="fr-sp-close">Stäng</button>
@@ -100,53 +98,96 @@
       pluginSettings.max_suggestions = Math.min(10, Math.max(1, parseInt(root.querySelector('#fr-max-suggestions').value) || 3));
       pluginSettings.image_source = (root.querySelector('#fr-image-source').value || 'both').toLowerCase();
       pluginSettings.stashdb_endpoint = root.querySelector('#fr-stashdb-endpoint').value || 'https://stashdb.org/graphql';
-      pluginSettings.stashdb_api_key = root.querySelector('#fr-stashdb-apikey').value || '';
       saveSettings();
       notify('Inställningar sparade');
     }catch(e){ console.error('Kunde inte spara inställningar:', e); notify('Fel vid sparning av inställningar', true); }
   }
 
-  // ---------------- Video & overlay ----------------
+  // ---------------- Hjälpare för video/overlay ----------------
   function findVideoElement(){ for (const sel of ['.video-js video','.vjs-tech','video[playsinline]','video']){ const el=document.querySelector(sel); if(el) return el; } return null; }
   function findVideoContainer(){ const video=findVideoElement(); if(!video) return null; let c=video.parentElement; while(c&&c!==document.body){ const cs=getComputedStyle(c); if(cs.position==='relative'||cs.position==='absolute') return c; c=c.parentElement; } return video.parentElement||null; }
   function clearOverlay(){ document.querySelectorAll('.frp-overlay').forEach(n=>n.remove()); }
   function ensureOverlay(){ const cont=findVideoContainer()||document.body; let ov=cont.querySelector('.frp-overlay'); if(ov) return ov; ov=document.createElement('div'); ov.className='frp-overlay'; const cs=getComputedStyle(cont); if(cont===document.body||cs.position==='static'){ Object.assign(ov.style,{position:'fixed',inset:0}); } else { ov.style.position='absolute'; ov.style.inset='0'; } ov.style.pointerEvents='none'; ov.style.zIndex='2147483647'; cont.appendChild(ov); return ov; }
 
-  function makePreviewTooltip(){ const tip=document.createElement('div'); tip.className='frp-preview'; Object.assign(tip.style,{ position:'absolute', left:'100%', top:'-4px', marginLeft:'8px', width:'128px', height:'128px', borderRadius:'10px', overflow:'hidden', border:'1px solid rgba(255,255,255,0.12)', background:'#0f1115', boxShadow:'0 8px 18px rgba(0,0,0,.35)', pointerEvents:'none' }); const img=document.createElement('img'); img.alt='preview'; Object.assign(img.style,{ width:'100%', height:'100%', objectFit:'cover', display:'block' }); tip.appendChild(img); return {tip,img}; }
+  function makePreviewTooltip(){
+  const tip = document.createElement('div');
+  tip.className = 'frp-preview';
+  Object.assign(tip.style, {
+    position: 'fixed',  // läggs på body => ej klippning av containers
+    left: '0px',
+    top: '0px',
+    width: '128px',
+    height: '128px',
+    borderRadius: '10px',
+    overflow: 'hidden',
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: '#0f1115',
+    boxShadow: '0 8px 18px rgba(0,0,0,.35)',
+    pointerEvents: 'none',
+    zIndex: 2147483647
+  });
+  const img = document.createElement('img');
+  img.alt = 'preview';
+  Object.assign(img.style, { width: '100%', height: '100%', objectFit: 'cover', display: 'block' });
+  tip.appendChild(img);
+  return { tip, img };
+}
 
-  async function queryImageViaApi(name){
-    try{
-      const u = new URL(pluginSettings.api_url.replace(/\/$/, ''));
-      const qs = new URLSearchParams({ name, source: pluginSettings.image_source, stashdb_endpoint: pluginSettings.stashdb_endpoint });
-      // OBS: Lägg helst StashDB API-key på backend (env). Skickas bara om du ännu inte lagt den där.
-      if (pluginSettings.stashdb_api_key) qs.set('stashdb_api_key', pluginSettings.stashdb_api_key);
-      const resp = await fetch(`${u.origin}${u.pathname}/resolve_image?${qs.toString()}`, { method:'GET' });
-      if (!resp.ok) return null;
-      const j = await resp.json();
-      return j && j.url ? j.url : null;
-    }catch{ return null; }
+  // ---------------- Bild-URL: bytes‑mode via backend ----------------
+  function bytesEndpointFor(name){
+    const u = new URL(pluginSettings.api_url.replace(/\/$/, ''));
+    const qs = new URLSearchParams({
+      name,
+      source: pluginSettings.image_source,
+      stashdb_endpoint: pluginSettings.stashdb_endpoint,
+      format: 'bytes' // <-- viktig del: backend returnerar bildbytes
+    });
+    return `${u.origin}${u.pathname}/resolve_image?${qs.toString()}`;
   }
 
   async function resolveImageURL(name){
     if (imageCache.has(name)) return imageCache.get(name);
-    const url = await queryImageViaApi(name);
-    imageCache.set(name, url || null);
+    const url = bytesEndpointFor(name); // direkt URL till bytes‑endpoint
+    imageCache.set(name, url);
     return url;
   }
 
   function attachHoverPreview(rowEl, name){
-    let tipRef=null, enterTimer=null;
-    rowEl.addEventListener('mouseenter', ()=>{
-      enterTimer = setTimeout(async ()=>{
-        const url = await resolveImageURL(name);
-        if (!url) return;
-        if (tipRef) return;
-        const {tip,img} = makePreviewTooltip();
-        img.src = url; rowEl.appendChild(tip); tipRef = tip;
-      }, 150);
-    });
-    rowEl.addEventListener('mouseleave', ()=>{ clearTimeout(enterTimer); enterTimer=null; if (tipRef){ tipRef.remove(); tipRef=null; } });
+  let tipRef = null, enterTimer = null;
+
+  function placeTipNear(el, tip){
+    const r = el.getBoundingClientRect();
+    const pad = 8, tw = 128, th = 128;
+    let x = r.right + pad, y = r.top - 4;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    if (x + tw > vw) x = Math.max(pad, r.left - pad - tw);
+    if (y + th > vh) y = Math.max(pad, vh - th - pad);
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
   }
+
+  rowEl.addEventListener('mouseenter', ()=>{
+    enterTimer = setTimeout(async ()=>{
+      const url = await resolveImageURL(name);
+      if (!url || tipRef) return;
+      const { tip, img } = makePreviewTooltip();
+      img.src = url;
+      document.body.appendChild(tip); // viktigt: på <body>
+      placeTipNear(rowEl, tip);
+      tipRef = tip;
+    }, 150);
+  });
+
+  rowEl.addEventListener('mousemove', ()=>{
+    if (tipRef) placeTipNear(rowEl, tipRef);
+  });
+
+  rowEl.addEventListener('mouseleave', ()=>{
+    clearTimeout(enterTimer); enterTimer = null;
+    if (tipRef){ tipRef.remove(); tipRef = null; }
+  });
+}
+
 
   function renderRecognizeOverlay(items){
     clearOverlay(); const video=findVideoElement(); if(!video){ notify('Ingen video för overlay', true); return; }

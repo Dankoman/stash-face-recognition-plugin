@@ -4,9 +4,10 @@
 .frp-overlay {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-  z-index: 2147483647; /* ovanpå allt */
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  /* Viktigt: tillåt events att nå förslagslistan */
+  pointer-events: auto;
+  z-index: 2147483647;
+  font-family: ui-sans-serif, system-ui, ...
 }
 
 /* Face-box runt detekterade ansiktet */
@@ -15,6 +16,7 @@
   border: 2px solid rgba(0, 200, 255, 0.9);
   border-radius: 6px;
   box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.4);
+  pointer-events: none;
 }
 
 /* Lista med förslag (under/ovanför boxen) */
@@ -29,7 +31,7 @@
   color: #f2f2f2;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible;
   backdrop-filter: blur(6px);
   pointer-events: auto; /* tillåter selektion/kopiering av text */
 }

@@ -8,9 +8,12 @@ ui:
     - face-recognition.js
   css:
     - face-recognition.css
-
-  # Content Security Policy för att tillåta API-anrop
   csp:
+    script-src:
+      - 'self'
+    style-src:
+      - 'self'
+      - 'unsafe-inline'
     connect-src:
       - http://192.168.0.140:5000
       - http://localhost:9999
@@ -41,4 +44,3 @@ settings:
     displayName: Skapa nya performers
     description: Skapa nya performer-poster för okända ansikten
     type: BOOLEAN
-
