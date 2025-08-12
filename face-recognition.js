@@ -1,7 +1,5 @@
-// face-recognition.js — bytes‑mode bildhämtning via backend‑proxy (CSP‑safe)
-// Den här versionen sätter <img>.src direkt till ditt API med `format=bytes`,
-// så att bilden levereras från samma origin som API:et (och inte blockeras av Stash UI:s CSP).
-// Högerklick på knappen öppnar en enkel inställningspanel.
+// face-recognition.js — bytes-mode bildhämtning via backend-proxy (CSP-safe)
+// + Klick på förslag = lägg till performer i aktuell scen via Stash GraphQL
 
 (function(){
   const LS_KEY = 'face_recognition_plugin_settings';
@@ -41,6 +39,96 @@
     setTimeout(()=>el.remove(), 2200);
   }
 
+  // ---------------- Stash GraphQL helpers ----------------
+  async function stashGraphQL(query, variables){
+    const resp = await fetch('/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ query, variables })
+    });
+    if(!resp.ok) throw new Error(`GraphQL HTTP ${resp.status}`);
+    const data = await resp.json();
+    if(data.errors) throw new Error(data.errors.map(e=>e.message).join('; '));
+    return data.data;
+  }
+
+  function getCurrentSceneId(){
+    // matcher /scenes/12345 eller /scenes/12345?... 
+    const m = location.pathname.match(/\/scenes\/(\d+)/);
+    return m ? m[1] : null;
+  }
+
+  async function getScenePerformerIds(sceneId){
+    const q = `
+      query($id: ID!){
+        findScene(id:$id){ id performers { id } }
+      }
+    `;
+    const d = await stashGraphQL(q, { id: sceneId });
+    const arr = (d?.findScene?.performers || []).map(p => parseInt(p.id,10)).filter(n => Number.isFinite(n));
+    return Array.from(new Set(arr));
+  }
+
+  async function findPerformerByName(name){
+    const q = `
+      query FindPerformer($name:String!){
+        findPerformers(
+          performer_filter:{ OR:{
+            name:{ value:$name, modifier:EQUALS },
+            aliases:{ value:$name, modifier:EQUALS }
+          }}
+          filter:{ per_page: 1 }
+        ){
+          performers{ id name }
+        }
+      }
+    `;
+    const d = await stashGraphQL(q, { name });
+    return d?.findPerformers?.performers?.[0] || null;
+  }
+
+  async function createPerformerIfAllowed(name){
+    if(!pluginSettings.create_new_performers) return null;
+    const q = `
+      mutation($input: PerformerCreateInput!){
+        performerCreate(input:$input){ id name }
+      }
+    `;
+    const d = await stashGraphQL(q, { input: { name } });
+    return d?.performerCreate || null;
+  }
+
+  async function addPerformerToSceneByName(name){
+    const sceneId = getCurrentSceneId();
+    if(!sceneId){ notify('Kunde inte hitta scen-ID', true); return; }
+
+    let perf = await findPerformerByName(name);
+    if(!perf){
+      perf = await createPerformerIfAllowed(name);
+      if(!perf){
+        notify(`Hittade ingen performer "${name}"`, true);
+        return;
+      }
+    }
+
+    const existing = await getScenePerformerIds(sceneId);
+    const pid = parseInt(perf.id, 10);
+    if(existing.includes(pid)){
+      notify(`"${perf.name}" finns redan i scenen`);
+      return;
+    }
+
+    const allIds = Array.from(new Set([...existing, pid]));
+    const q = `
+      mutation($input: SceneUpdateInput!){
+        sceneUpdate(input:$input){ id }
+      }
+    `;
+    await stashGraphQL(q, { input: { id: sceneId, performer_ids: allIds } });
+    notify(`La till "${perf.name}" i scenen`);
+  }
+
   // ---------------- Settings panel (högerklick) ----------------
   function createSettingsPanel(){
     if (document.querySelector('.fr-settings-panel')) return; // en instans åt gången
@@ -73,7 +161,7 @@
 
         <hr style="margin:12px 0;border-color:#3a3a3a;">
 
-        <label>Max förslag (topp‑K):</label>
+        <label>Max förslag (topp-K):</label>
         <input type="number" id="fr-max-suggestions" value="${pluginSettings.max_suggestions}" min="1" max="10">
 
         <label>Bildkälla (local | stashdb | both):</label>
@@ -98,7 +186,6 @@
       .fr-sp-actions{display:flex;gap:8px;margin-top:14px}
       .fr-sp-actions button{background:#2a61ff;color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
       .fr-sp-actions button#fr-sp-close{background:#3a3f4b}`;
-
     wrap.appendChild(style);
     document.body.appendChild(wrap);
     wrap.querySelector('#fr-sp-close').addEventListener('click', () => wrap.remove());
@@ -168,24 +255,21 @@
       background:'#0f1115', boxShadow:'0 8px 18px rgba(0,0,0,.35)',
       pointerEvents:'none', zIndex:2147483647,
       overflow:'visible',
-      maxWidth:'150px',     // hård gräns
-      maxHeight:'90vh'      // skydd mot helskärm
+      maxWidth:'150px',
+      maxHeight:'90vh'
     });
 
     const img = document.createElement('img');
     img.alt = 'preview';
     img.className = 'frp-avatar';
-
-    // Inline-stilar (säkra att sidans CSS inte skalar upp till helskärm)
     Object.assign(img.style, {
       display:'block',
-      width:'100%',     // fyller containern upp till 250 px
+      width:'100%',
       height:'auto',
       objectFit:'contain',
       maxWidth:'150px',
       maxHeight:'90vh'
     });
-    // Extra säkerhet om sidan använder !important
     img.style.setProperty('max-width','150px','important');
     img.style.setProperty('max-height','90vh','important');
     img.style.setProperty('width','100%','important');
@@ -196,32 +280,32 @@
     return { tip, img };
   }
 
-  // ---------------- Bild-URL: bytes‑mode via backend ----------------
+  // ---------------- Bild-URL: bytes-mode via backend ----------------
   function bytesEndpointFor(name){
     const u = new URL(pluginSettings.api_url.replace(/\/$/, ''));
     const qs = new URLSearchParams({
       name,
       source: pluginSettings.image_source,
       stashdb_endpoint: pluginSettings.stashdb_endpoint,
-      format: 'bytes' // backend returnerar bildbytes
+      format: 'bytes'
     });
     return `${u.origin}${u.pathname}/resolve_image?${qs.toString()}`;
   }
 
   async function resolveImageURL(name){
     if (imageCache.has(name)) return imageCache.get(name);
-    const url = bytesEndpointFor(name); // direkt URL till bytes‑endpoint
+    const url = bytesEndpointFor(name);
     imageCache.set(name, url);
     return url;
   }
 
-  // ---------------- Hover‑preview per rad ----------------
+  // ---------------- Hover-preview per rad ----------------
   function attachHoverPreview(rowEl, name){
     let tipRef = null, enterTimer = null;
 
     function placeTipNear(el, tip){
       const r  = el.getBoundingClientRect();
-      const tr = tip.getBoundingClientRect(); // faktisk storlek
+      const tr = tip.getBoundingClientRect();
       const pad = 8;
       const vw = window.innerWidth, vh = window.innerHeight;
 
@@ -240,7 +324,6 @@
         const url = await resolveImageURL(name);
         if (!url || tipRef) return;
         const { tip, img } = makePreviewTooltip();
-        // Begränsa bredd/höjd även här (inline) för att slå igenom säkert
         tip.style.maxWidth = '150px';
         tip.style.maxHeight = '90vh';
         img.style.maxWidth = '150px';
@@ -248,26 +331,20 @@
         img.style.height = 'auto';
         img.style.objectFit = 'contain';
 
-        img.onload = () => {
-          document.body.appendChild(tip);   // lägg i DOM när mått finns
-          placeTipNear(rowEl, tip);
-        };
+        img.onload = () => { document.body.appendChild(tip); placeTipNear(rowEl, tip); };
         img.src = url;
         tipRef = tip;
       }, 150);
     });
 
-    rowEl.addEventListener('mousemove', ()=>{
-      if (tipRef) placeTipNear(rowEl, tipRef);
-    });
-
+    rowEl.addEventListener('mousemove', ()=>{ if (tipRef) placeTipNear(rowEl, tipRef); });
     rowEl.addEventListener('mouseleave', ()=>{
       clearTimeout(enterTimer); enterTimer = null;
       if (tipRef){ tipRef.remove(); tipRef = null; }
     });
   }
 
-  // ---------------- Overlay‑rendering ----------------
+  // ---------------- Overlay-rendering ----------------
   function renderRecognizeOverlay(items){
     clearOverlay();
     const video = findVideoElement();
@@ -319,12 +396,28 @@
           Object.assign(row.style, {
             display:'flex', alignItems:'center', gap:'10px',
             padding:'8px 10px', lineHeight:'1.25',
-            borderBottom:'1px solid rgba(255,255,255,0.06)'
+            borderBottom:'1px solid rgba(255,255,255,0.06)',
+            cursor:'pointer'
           });
           const span = document.createElement('span');
           span.textContent = pluginSettings.show_confidence ? `${c.name} (${Math.round(c.score*100)}%)` : c.name;
           Object.assign(span.style, { fontSize:'14px', fontWeight:'600', color:'#f7f7f7', textShadow:'0 1px 1px rgba(0,0,0,0.4)' });
           row.appendChild(span);
+
+          // --- NYTT: klick = lägg till i scenen ---
+          row.addEventListener('click', async (e)=>{
+            e.preventDefault(); e.stopPropagation();
+            row.style.opacity = '0.6';
+            try{
+              await addPerformerToSceneByName(c.name);
+            }catch(err){
+              console.error(err);
+              notify(`Misslyckades: ${err.message||err}`, true);
+            }finally{
+              row.style.opacity = '';
+            }
+          });
+
           sug.appendChild(row);
           attachHoverPreview(row, c.name);
         });
@@ -336,7 +429,7 @@
     });
   }
 
-  // ---------------- UI‑knapp ----------------
+  // ---------------- UI-knapp ----------------
   function createPluginButton(){
     const btn = document.createElement('button');
     btn.textContent = 'Identifiera Ansikten';
