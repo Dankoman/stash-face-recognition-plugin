@@ -1,16 +1,13 @@
-/* face-recognition.css */
+/* face-recognition.css (uppdaterad för större, icke-beskurna previews) */
 
-/* Overlay som läggs ovanpå videospelaren */
 .frp-overlay {
   position: absolute;
   inset: 0;
-  /* Viktigt: tillåt events att nå förslagslistan */
   pointer-events: auto;
   z-index: 2147483647;
-  font-family: ui-sans-serif, system-ui, ...
+  font-family: ui-sans-serif, system-ui;
 }
 
-/* Face-box runt detekterade ansiktet */
 .frp-face-box {
   position: absolute;
   border: 2px solid rgba(0, 200, 255, 0.9);
@@ -19,49 +16,73 @@
   pointer-events: none;
 }
 
-/* Lista med förslag (under/ovanför boxen) */
+:root {
+  --fr-preview-max: none; /* tillåt originalstorlek */
+  --fr-preview-border: 1px solid rgba(255,255,255,.25);
+  --fr-preview-radius: 10px;
+  --fr-preview-bg: rgba(0,0,0,.45);
+  --fr-preview-padding: 0;
+  --fr-preview-shadow: 0 4px 18px rgba(0,0,0,.45);
+}
+
 .frp-suggestions {
   position: absolute;
   left: 0;
   top: 100%;
   margin-top: 6px;
   min-width: 220px;
-  max-width: 360px;
+  max-width: none;
+  width: max-content;
   background: rgba(18, 18, 18, 0.92);
   color: #f2f2f2;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 10px;
   overflow: visible;
   backdrop-filter: blur(6px);
-  pointer-events: auto; /* tillåter selektion/kopiering av text */
+  pointer-events: auto;
 }
 
-/* Enskild rad för kandidat */
 .frp-suggestion {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 8px 10px;
   line-height: 1.25;
   border-bottom: 1px solid rgba(255,255,255,0.06);
+  width: max-content;
+  overflow: visible;
 }
 
-.frp-suggestion:last-child {
-  border-bottom: none;
-}
+.frp-suggestion:last-child { border-bottom: none; }
 
-/* Profilbild/miniatyr */
-.frp-avatar {
-  width: 56px;
-  height: 56px;
+.frp-avatar,
+.frp-avatar img,
+img.frp-avatar,
+.frp-avatar[style],
+.frp-avatar[data-fr-preview] {
+  width: auto !important;
+  height: auto !important;
+  max-width: var(--fr-preview-max) !important;
+  max-height: var(--fr-preview-max) !important;
+  object-fit: contain !important;        /* visa hela ansiktet */
+  background: none !important;           /* om bakgrundsbild används, slå av */
   border-radius: 8px;
-  object-fit: cover;
-  background: #222;
-  flex: 0 0 56px;
+  flex: 0 0 auto !important;             /* inte låst till 56px */
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  display: block !important;
+  border: none;
+  padding: 0;
 }
 
-/* Texten (namn + ev. confidence) */
+.frp-avatar > img {
+  width: inherit !important;
+  height: inherit !important;
+  max-width: inherit !important;
+  max-height: inherit !important;
+  object-fit: inherit !important;
+  display: block !important;
+}
+
 .frp-suggestion span {
   font-size: 14px;
   font-weight: 600;
@@ -69,7 +90,6 @@
   text-shadow: 0 1px 1px rgba(0,0,0,0.4);
 }
 
-/* Ljus-läge fallback om sidan är ljus */
 @media (prefers-color-scheme: light) {
   .frp-suggestions {
     background: rgba(255,255,255,0.95);
@@ -79,14 +99,10 @@
   .frp-suggestion span { color: #0b0b0b; }
 }
 
-/* Små skärmar – gör listan smalare */
 @media (max-width: 640px) {
-  .frp-suggestions { min-width: 180px; max-width: 280px; }
-  .frp-avatar { width: 48px; height: 48px; flex-basis: 48px; }
+  .frp-suggestions { max-width: 90vw; min-width: 180px; }
 }
 
-/* Skydda mot att overlay hamnar utanför playern
-   (kan kompletteras med JS som repositionerar om det överflödar) */
 .frp-face-box[data-flip="top"] .frp-suggestions {
   top: auto;
   bottom: 100%;
@@ -94,7 +110,17 @@
   margin-bottom: 6px;
 }
 
-/* Hjälpklass om du vill markera låg confidence via JS */
-.frp-suggestion.is-low {
-  opacity: 0.6;
+.frp-suggestion.is-low { opacity: 0.6; }
+
+.frp-preview {
+  max-width: 250px;         /* Begränsa bredden på preview */
+  max-height: 90vh;         /* så den aldrig fyller hela skärmen */
+  overflow: hidden;         /* döljer överspill */
 }
+
+.frp-avatar {
+  width: 100% !important;   /* fyller containern */
+  height: auto !important;  /* behåller proportionerna */
+  object-fit: contain !important;
+}
+

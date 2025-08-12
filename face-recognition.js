@@ -16,13 +16,30 @@
     create_new_performers: false,
     max_suggestions: 3,
     image_source: 'both', // local|stashdb|both (skickas till backend)
-    stashdb_endpoint: 'https://stashdb.org/graphql'
+    stashdb_endpoint: 'https://stashdb.org/graphql',
     // stashdb_api_key hanteras på backend via env
   };
 
-  function loadSettings(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw) pluginSettings={...pluginSettings,...JSON.parse(raw)};}catch{} }
-  function saveSettings(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{} }
-  function notify(msg,isErr=false){ const el=document.createElement('div'); el.textContent=msg; Object.assign(el.style,{position:'fixed',bottom:'16px',right:'16px',background:isErr?'#b91c1c':'#166534',color:'#fff',padding:'10px 12px',borderRadius:'10px',zIndex:10000}); document.body.appendChild(el); setTimeout(()=>el.remove(),2200); }
+  function loadSettings(){
+    try{
+      const raw = localStorage.getItem(LS_KEY);
+      if(raw) pluginSettings = { ...pluginSettings, ...JSON.parse(raw) };
+    }catch{}
+  }
+  function saveSettings(){
+    try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{}
+  }
+  function notify(msg, isErr=false){
+    const el = document.createElement('div');
+    el.textContent = msg;
+    Object.assign(el.style, {
+      position:'fixed', bottom:'16px', right:'16px',
+      background: isErr ? '#b91c1c' : '#166534', color:'#fff',
+      padding:'10px 12px', borderRadius:'10px', zIndex:10000
+    });
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(), 2200);
+  }
 
   // ---------------- Settings panel (högerklick) ----------------
   function createSettingsPanel(){
@@ -104,34 +121,80 @@
   }
 
   // ---------------- Hjälpare för video/overlay ----------------
-  function findVideoElement(){ for (const sel of ['.video-js video','.vjs-tech','video[playsinline]','video']){ const el=document.querySelector(sel); if(el) return el; } return null; }
-  function findVideoContainer(){ const video=findVideoElement(); if(!video) return null; let c=video.parentElement; while(c&&c!==document.body){ const cs=getComputedStyle(c); if(cs.position==='relative'||cs.position==='absolute') return c; c=c.parentElement; } return video.parentElement||null; }
+  function findVideoElement(){
+    for (const sel of ['.video-js video','.vjs-tech','video[playsinline]','video']){
+      const el = document.querySelector(sel);
+      if(el) return el;
+    }
+    return null;
+  }
+  function findVideoContainer(){
+    const video = findVideoElement(); if(!video) return null;
+    let c = video.parentElement;
+    while(c && c !== document.body){
+      const cs = getComputedStyle(c);
+      if(cs.position === 'relative' || cs.position === 'absolute') return c;
+      c = c.parentElement;
+    }
+    return video.parentElement || null;
+  }
   function clearOverlay(){ document.querySelectorAll('.frp-overlay').forEach(n=>n.remove()); }
-  function ensureOverlay(){ const cont=findVideoContainer()||document.body; let ov=cont.querySelector('.frp-overlay'); if(ov) return ov; ov=document.createElement('div'); ov.className='frp-overlay'; const cs=getComputedStyle(cont); if(cont===document.body||cs.position==='static'){ Object.assign(ov.style,{position:'fixed',inset:0}); } else { ov.style.position='absolute'; ov.style.inset='0'; } ov.style.pointerEvents='none'; ov.style.zIndex='2147483647'; cont.appendChild(ov); return ov; }
+  function ensureOverlay(){
+    const cont = findVideoContainer() || document.body;
+    let ov = cont.querySelector('.frp-overlay');
+    if(ov) return ov;
+    ov = document.createElement('div');
+    ov.className = 'frp-overlay';
+    const cs = getComputedStyle(cont);
+    if(cont === document.body || cs.position === 'static'){
+      Object.assign(ov.style, { position:'fixed', inset:0 });
+    } else {
+      ov.style.position = 'absolute';
+      ov.style.inset = '0';
+    }
+    ov.style.pointerEvents = 'none';
+    ov.style.zIndex = '2147483647';
+    cont.appendChild(ov);
+    return ov;
+  }
 
+  // ---------------- Tooltip (förhandsbild) ----------------
   function makePreviewTooltip(){
-  const tip = document.createElement('div');
-  tip.className = 'frp-preview';
-  Object.assign(tip.style, {
-    position: 'fixed',  // läggs på body => ej klippning av containers
-    left: '0px',
-    top: '0px',
-    width: '128px',
-    height: '128px',
-    borderRadius: '10px',
-    overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,0.12)',
-    background: '#0f1115',
-    boxShadow: '0 8px 18px rgba(0,0,0,.35)',
-    pointerEvents: 'none',
-    zIndex: 2147483647
-  });
-  const img = document.createElement('img');
-  img.alt = 'preview';
-  Object.assign(img.style, { width: '100%', height: '100%', objectFit: 'cover', display: 'block' });
-  tip.appendChild(img);
-  return { tip, img };
-}
+    const tip = document.createElement('div');
+    tip.className = 'frp-preview';
+    Object.assign(tip.style, {
+      position:'fixed', left:'0px', top:'0px',
+      borderRadius:'10px', border:'1px solid rgba(255,255,255,0.12)',
+      background:'#0f1115', boxShadow:'0 8px 18px rgba(0,0,0,.35)',
+      pointerEvents:'none', zIndex:2147483647,
+      overflow:'visible',
+      maxWidth:'150px',     // hård gräns
+      maxHeight:'90vh'      // skydd mot helskärm
+    });
+
+    const img = document.createElement('img');
+    img.alt = 'preview';
+    img.className = 'frp-avatar';
+
+    // Inline-stilar (säkra att sidans CSS inte skalar upp till helskärm)
+    Object.assign(img.style, {
+      display:'block',
+      width:'100%',     // fyller containern upp till 250 px
+      height:'auto',
+      objectFit:'contain',
+      maxWidth:'150px',
+      maxHeight:'90vh'
+    });
+    // Extra säkerhet om sidan använder !important
+    img.style.setProperty('max-width','150px','important');
+    img.style.setProperty('max-height','90vh','important');
+    img.style.setProperty('width','100%','important');
+    img.style.setProperty('height','auto','important');
+    img.style.setProperty('object-fit','contain','important');
+
+    tip.appendChild(img);
+    return { tip, img };
+  }
 
   // ---------------- Bild-URL: bytes‑mode via backend ----------------
   function bytesEndpointFor(name){
@@ -140,7 +203,7 @@
       name,
       source: pluginSettings.image_source,
       stashdb_endpoint: pluginSettings.stashdb_endpoint,
-      format: 'bytes' // <-- viktig del: backend returnerar bildbytes
+      format: 'bytes' // backend returnerar bildbytes
     });
     return `${u.origin}${u.pathname}/resolve_image?${qs.toString()}`;
   }
@@ -152,76 +215,189 @@
     return url;
   }
 
+  // ---------------- Hover‑preview per rad ----------------
   function attachHoverPreview(rowEl, name){
-  let tipRef = null, enterTimer = null;
+    let tipRef = null, enterTimer = null;
 
-  function placeTipNear(el, tip){
-    const r = el.getBoundingClientRect();
-    const pad = 8, tw = 128, th = 128;
-    let x = r.right + pad, y = r.top - 4;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    if (x + tw > vw) x = Math.max(pad, r.left - pad - tw);
-    if (y + th > vh) y = Math.max(pad, vh - th - pad);
-    tip.style.left = x + 'px';
-    tip.style.top  = y + 'px';
+    function placeTipNear(el, tip){
+      const r  = el.getBoundingClientRect();
+      const tr = tip.getBoundingClientRect(); // faktisk storlek
+      const pad = 8;
+      const vw = window.innerWidth, vh = window.innerHeight;
+
+      let x = r.right + pad;
+      let y = r.top - 4;
+
+      if (x + tr.width  > vw) x = Math.max(pad, r.left - pad - tr.width);
+      if (y + tr.height > vh) y = Math.max(pad, vh - tr.height - pad);
+
+      tip.style.left = x + 'px';
+      tip.style.top  = y + 'px';
+    }
+
+    rowEl.addEventListener('mouseenter', ()=>{
+      enterTimer = setTimeout(async ()=>{
+        const url = await resolveImageURL(name);
+        if (!url || tipRef) return;
+        const { tip, img } = makePreviewTooltip();
+        // Begränsa bredd/höjd även här (inline) för att slå igenom säkert
+        tip.style.maxWidth = '150px';
+        tip.style.maxHeight = '90vh';
+        img.style.maxWidth = '150px';
+        img.style.width = '100%';
+        img.style.height = 'auto';
+        img.style.objectFit = 'contain';
+
+        img.onload = () => {
+          document.body.appendChild(tip);   // lägg i DOM när mått finns
+          placeTipNear(rowEl, tip);
+        };
+        img.src = url;
+        tipRef = tip;
+      }, 150);
+    });
+
+    rowEl.addEventListener('mousemove', ()=>{
+      if (tipRef) placeTipNear(rowEl, tipRef);
+    });
+
+    rowEl.addEventListener('mouseleave', ()=>{
+      clearTimeout(enterTimer); enterTimer = null;
+      if (tipRef){ tipRef.remove(); tipRef = null; }
+    });
   }
 
-  rowEl.addEventListener('mouseenter', ()=>{
-    enterTimer = setTimeout(async ()=>{
-      const url = await resolveImageURL(name);
-      if (!url || tipRef) return;
-      const { tip, img } = makePreviewTooltip();
-      img.src = url;
-      document.body.appendChild(tip); // viktigt: på <body>
-      placeTipNear(rowEl, tip);
-      tipRef = tip;
-    }, 150);
-  });
-
-  rowEl.addEventListener('mousemove', ()=>{
-    if (tipRef) placeTipNear(rowEl, tipRef);
-  });
-
-  rowEl.addEventListener('mouseleave', ()=>{
-    clearTimeout(enterTimer); enterTimer = null;
-    if (tipRef){ tipRef.remove(); tipRef = null; }
-  });
-}
-
-
+  // ---------------- Overlay‑rendering ----------------
   function renderRecognizeOverlay(items){
-    clearOverlay(); const video=findVideoElement(); if(!video){ notify('Ingen video för overlay', true); return; }
-    const ov=ensureOverlay(); const r=video.getBoundingClientRect(); const vw=video.clientWidth||r.width; const vh=video.clientHeight||r.height; const iw=video.videoWidth||vw; const ih=video.videoHeight||vh; const sx=vw/iw, sy=vh/ih;
+    clearOverlay();
+    const video = findVideoElement();
+    if(!video){ notify('Ingen video för overlay', true); return; }
+    const ov = ensureOverlay();
+    const r = video.getBoundingClientRect();
+    const vw = video.clientWidth || r.width;
+    const vh = video.clientHeight || r.height;
+    const iw = video.videoWidth || vw;
+    const ih = video.videoHeight || vh;
+    const sx = vw/iw, sy = vh/ih;
 
     items.forEach(face=>{
-      const {x,y,w,h}=face.box; const left=r.left+x*sx; const top=r.top+y*sy; const width=w*sx; const height=h*sy;
-      const box=document.createElement('div'); Object.assign(box.style,{position:'fixed',left:left+'px',top:top+'px',width:width+'px',height:height+'px',border:'2px solid rgba(0,200,255,0.9)',borderRadius:'6px',boxShadow:'0 0 0 1px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.4)'});
-      const sug=document.createElement('div'); Object.assign(sug.style,{position:'absolute',left:'0px',top:'100%',marginTop:'6px',minWidth:'240px',background:'rgba(18,18,18,0.92)',color:'#f2f2f2',border:'1px solid rgba(255,255,255,0.12)',borderRadius:'10px',overflow:'hidden',backdropFilter:'blur(6px)',pointerEvents:'auto'});
-      const minPct=Math.max(0,Math.min(100,pluginSettings.min_confidence));
-      const cands=(face.candidates||[]).filter(c=>(c.score*100)>=minPct).slice(0,pluginSettings.max_suggestions||3);
-      if (cands.length===0){ const row=document.createElement('div'); Object.assign(row.style,{padding:'8px 10px',borderBottom:'1px solid rgba(255,255,255,0.06)'}); row.textContent='(inga kandidater över tröskeln)'; sug.appendChild(row); }
-      else {
-        cands.forEach(c=>{ const row=document.createElement('div'); Object.assign(row.style,{display:'flex',alignItems:'center',gap:'10px',padding:'8px 10px',lineHeight:'1.25',borderBottom:'1px solid rgba(255,255,255,0.06)'}); const span=document.createElement('span'); span.textContent=pluginSettings.show_confidence?`${c.name} (${Math.round(c.score*100)}%)`:c.name; Object.assign(span.style,{fontSize:'14px',fontWeight:'600',color:'#f7f7f7',textShadow:'0 1px 1px rgba(0,0,0,0.4)'}); row.appendChild(span); sug.appendChild(row); attachHoverPreview(row,c.name); }); const last=sug.lastElementChild; if(last) last.style.borderBottom='none'; }
-      box.appendChild(sug); ov.appendChild(box);
+      const {x,y,w,h} = face.box;
+      const left = r.left + x*sx;
+      const top  = r.top  + y*sy;
+      const width  = w*sx;
+      const height = h*sy;
+
+      const box = document.createElement('div');
+      Object.assign(box.style, {
+        position:'fixed', left:left+'px', top:top+'px',
+        width:width+'px', height:height+'px',
+        border:'2px solid rgba(0,200,255,0.9)', borderRadius:'6px',
+        boxShadow:'0 0 0 1px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.4)'
+      });
+
+      const sug = document.createElement('div');
+      Object.assign(sug.style, {
+        position:'absolute', left:'0px', top:'100%', marginTop:'6px',
+        minWidth:'240px', background:'rgba(18,18,18,0.92)', color:'#f2f2f2',
+        border:'1px solid rgba(255,255,255,0.12)', borderRadius:'10px',
+        overflow:'hidden', backdropFilter:'blur(6px)', pointerEvents:'auto'
+      });
+
+      const minPct = Math.max(0, Math.min(100, pluginSettings.min_confidence));
+      const cands = (face.candidates||[])
+        .filter(c => (c.score*100) >= minPct)
+        .slice(0, pluginSettings.max_suggestions || 3);
+
+      if (cands.length === 0){
+        const row = document.createElement('div');
+        Object.assign(row.style, { padding:'8px 10px', borderBottom:'1px solid rgba(255,255,255,0.06)' });
+        row.textContent = '(inga kandidater över tröskeln)';
+        sug.appendChild(row);
+      } else {
+        cands.forEach(c => {
+          const row = document.createElement('div');
+          Object.assign(row.style, {
+            display:'flex', alignItems:'center', gap:'10px',
+            padding:'8px 10px', lineHeight:'1.25',
+            borderBottom:'1px solid rgba(255,255,255,0.06)'
+          });
+          const span = document.createElement('span');
+          span.textContent = pluginSettings.show_confidence ? `${c.name} (${Math.round(c.score*100)}%)` : c.name;
+          Object.assign(span.style, { fontSize:'14px', fontWeight:'600', color:'#f7f7f7', textShadow:'0 1px 1px rgba(0,0,0,0.4)' });
+          row.appendChild(span);
+          sug.appendChild(row);
+          attachHoverPreview(row, c.name);
+        });
+        const last = sug.lastElementChild; if(last) last.style.borderBottom = 'none';
+      }
+
+      box.appendChild(sug);
+      ov.appendChild(box);
     });
   }
 
   // ---------------- UI‑knapp ----------------
-  function createPluginButton(){ const btn=document.createElement('button'); btn.textContent='Identifiera Ansikten'; btn.className='face-recognition-button'; btn.style.marginRight='50px'; btn.addEventListener('click', performFaceRecognition); btn.addEventListener('contextmenu',e=>{ e.preventDefault(); createSettingsPanel(); }); return btn; }
-  function addPluginButton(){ const c=findVideoContainer(); if(c&&c.querySelector('.face-recognition-button'))return; const btn=createPluginButton(); if(c){ c.appendChild(btn);} else{ Object.assign(btn.style,{position:'fixed',top:'12px',right:'60px',zIndex:9999}); document.body.appendChild(btn);} }
+  function createPluginButton(){
+    const btn = document.createElement('button');
+    btn.textContent = 'Identifiera Ansikten';
+    btn.className = 'face-recognition-button';
+    btn.style.marginRight = '50px';
+    btn.addEventListener('click', performFaceRecognition);
+    btn.addEventListener('contextmenu', e => { e.preventDefault(); createSettingsPanel(); });
+    return btn;
+  }
+  function addPluginButton(){
+    const c = findVideoContainer();
+    if(c && c.querySelector('.face-recognition-button')) return;
+    const btn = createPluginButton();
+    if(c){ c.appendChild(btn); }
+    else {
+      Object.assign(btn.style, { position:'fixed', top:'12px', right:'60px', zIndex:9999 });
+      document.body.appendChild(btn);
+    }
+  }
 
   // ---------------- Huvudflöde ----------------
   async function performFaceRecognition(){
     try{
-      const video=findVideoElement(); if(!video) return notify('Ingen video hittad', true);
-      if(!video.videoWidth||!video.videoHeight) return notify('Video ej redo', true);
-      const canvas=document.createElement('canvas'); canvas.width=video.videoWidth; canvas.height=video.videoHeight; const ctx=canvas.getContext('2d'); ctx.drawImage(video,0,0); const blob=await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.92)); if(!blob) return notify('Kunde inte skapa bild',true);
-      const fd=new FormData(); fd.append('image', new File([blob],'frame.jpg',{type:'image/jpeg'}));
-      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(), Math.max(3,pluginSettings.api_timeout)*1000);
-      const url=`${pluginSettings.api_url.replace(/\/$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`; const resp=await fetch(url,{method:'POST',body:fd,signal:ctrl.signal}); clearTimeout(to); if(!resp.ok) throw new Error(`API-fel ${resp.status}`); const data=await resp.json(); renderRecognizeOverlay(Array.isArray(data)?data:[]); }
+      const video = findVideoElement(); if(!video) return notify('Ingen video hittad', true);
+      if(!video.videoWidth || !video.videoHeight) return notify('Video ej redo', true);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+      if(!blob) return notify('Kunde inte skapa bild', true);
+
+      const fd = new FormData();
+      fd.append('image', new File([blob], 'frame.jpg', { type:'image/jpeg' }));
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), Math.max(3, pluginSettings.api_timeout) * 1000);
+      const url = `${pluginSettings.api_url.replace(/\/$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`;
+      const resp = await fetch(url, { method:'POST', body:fd, signal:ctrl.signal });
+      clearTimeout(to);
+      if(!resp.ok) throw new Error(`API-fel ${resp.status}`);
+      const data = await resp.json();
+      renderRecognizeOverlay(Array.isArray(data) ? data : []);
+    }
     catch(e){ console.error(e); notify('Fel vid ansiktsigenkänning', true); }
   }
 
-  function init(){ loadSettings(); if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', addPluginButton); else addPluginButton(); const mo=new MutationObserver(()=>setTimeout(addPluginButton,600)); mo.observe(document.body,{childList:true,subtree:true}); let tries=0; const iv=setInterval(()=>{ try{addPluginButton();}catch{} if(findVideoElement()||++tries>20) clearInterval(iv); },1000); }
-  try{ init(); }catch(e){ console.error('Initfel:',e); }
+  function init(){
+    loadSettings();
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addPluginButton);
+    else addPluginButton();
+
+    const mo = new MutationObserver(() => setTimeout(addPluginButton, 600));
+    mo.observe(document.body, { childList:true, subtree:true });
+
+    let tries = 0;
+    const iv = setInterval(() => {
+      try{ addPluginButton(); }catch{}
+      if(findVideoElement() || ++tries > 20) clearInterval(iv);
+    }, 1000);
+  }
+
+  try{ init(); }catch(e){ console.error('Initfel:', e); }
 })();
