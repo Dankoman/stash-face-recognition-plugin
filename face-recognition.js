@@ -642,21 +642,30 @@
   // ---------------- UI-knapp ----------------
   function createPluginButton(){
     const btn = document.createElement('button');
-    btn.textContent = 'Identifiera Ansikten';
-    btn.className = 'face-recognition-button';
-    btn.style.marginRight = '50px';
+    btn.type = 'button';
+    btn.className = 'frp-fab';
+    btn.innerHTML = `<span class="frp-fab-icon" aria-hidden="true">👁</span><span class="frp-fab-text">Identifiera</span>`;
+    btn.title = 'Identifiera ansikten (vänsterklick) — Inställningar (högerklick)';
+    btn.setAttribute('aria-label', 'Identifiera ansikten');
     btn.addEventListener('click', performFaceRecognition);
     btn.addEventListener('contextmenu', e => { e.preventDefault(); createSettingsPanel(); });
     return btn;
   }
   function addPluginButton(){
-    const c = findVideoContainer();
-    if(c && c.querySelector('.face-recognition-button')) return;
+    const host = findVideoContainer() || document.body;
+    if(host.querySelector('.frp-fab')) return;
+    const existing = document.querySelector('.frp-fab');
+    if(existing){ existing.remove(); }
     const btn = createPluginButton();
-    if(c){ c.appendChild(btn); }
-    else {
-      Object.assign(btn.style, { position:'fixed', top:'12px', right:'60px', zIndex:9999 });
-      document.body.appendChild(btn);
+    host.appendChild(btn);
+    if(host === document.body){
+      btn.classList.add('frp-fab--global');
+    } else {
+      btn.classList.remove('frp-fab--global');
+      const cs = window.getComputedStyle(host);
+      if(cs.position === 'static'){
+        host.classList.add('frp-fab-anchor');
+      }
     }
   }
 
