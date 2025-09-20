@@ -1,753 +1,537 @@
-(function() {
-    'use strict';
+// face-recognition.js — bytes-mode bildhämtning via backend-proxy (CSP-safe)
+// + Klick på förslag = lägg till performer i aktuell scen via Stash GraphQL
 
-    // Plugin-konfiguration
-    const PLUGIN_ID = 'face-recognition';
-    let pluginSettings = {
-        api_url: 'http://192.168.0.140:5000',
-        api_timeout: 30,
-        show_confidence: true,
-        min_confidence: 30,
-        auto_add_performers: false,
-        create_new_performers: false
-    };
+(function(){
+  const LS_KEY = 'face_recognition_plugin_settings';
+  const imageCache = new Map(); // name -> url|null
 
-    // Plugin-tillstånd
-    let isProcessing = false;
-    let currentOverlay = null;
-    let settingsPanel = null;
-    let currentSceneId = null;
-    let identifiedFaces = [];
+  let pluginSettings = {
+    api_url: 'http://127.0.0.1:5000',
+    api_timeout: 30,
+    show_confidence: true,
+    min_confidence: 30,
+    auto_add_performers: false,
+    create_new_performers: false,
+    max_suggestions: 3,
+    image_source: 'stashdb', // local|stashdb|both (skickas till backend)
+    stashdb_endpoint: 'https://stashdb.org/graphql',
+    // stashdb_api_key hanteras på backend via env
+  };
 
-    // Ladda plugin-inställningar
-    function loadSettings() {
-        try {
-            const saved = localStorage.getItem(`${PLUGIN_ID}_settings`);
-            if (saved) {
-                pluginSettings = { ...pluginSettings, ...JSON.parse(saved) };
-            }
-        } catch (e) {
-            console.warn('Kunde inte ladda plugin-inställningar:', e);
-        }
+  function loadSettings(){
+    try{
+      const raw = localStorage.getItem(LS_KEY);
+      if(raw) pluginSettings = { ...pluginSettings, ...JSON.parse(raw) };
+      pluginSettings.api_url = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
+    }catch{}
+  }
+  function saveSettings(){
+    try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{}
+  }
+
+  function normalizeApiBaseUrl(value){
+    const trimmed = (value || '').toString().trim();
+    if(!trimmed) return '';
+
+    let candidate = trimmed
+      .replace(/\\/g, '/')
+      .replace(/\s+/g, '')
+      .replace(/\.+$/, '');
+
+    if(/^([a-z][a-z0-9+.-]*:\/)([^/])/i.test(candidate)){
+      candidate = candidate.replace(/^([a-z][a-z0-9+.-]*:\/)([^/])/i, '$1/$2');
     }
 
-    // Spara plugin-inställningar
-    function saveSettings() {
-        try {
-            localStorage.setItem(`${PLUGIN_ID}_settings`, JSON.stringify(pluginSettings));
-        } catch (e) {
-            console.warn('Kunde inte spara plugin-inställningar:', e);
-        }
+    if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)){
+      candidate = `http://${candidate.replace(/^\/+/,'')}`;
     }
 
-    // Hämta aktuell scen-ID från URL
-    function getCurrentSceneId() {
-        const path = window.location.pathname;
-        const match = path.match(/\/scenes\/(\d+)/);
-        return match ? match[1] : null;
+    try{
+      const url = new URL(candidate);
+      const cleanPath = url.pathname.replace(/\/+$/,'');
+      return `${url.origin}${cleanPath === '/' ? '' : cleanPath}`;
+    }catch(_){
+      return candidate.replace(/\/+$/,'');
     }
+  }
+  function notify(msg, isErr=false){
+    const el = document.createElement('div');
+    el.textContent = msg;
+    Object.assign(el.style, {
+      position:'fixed', bottom:'16px', right:'16px',
+      background: isErr ? '#b91c1c' : '#166534', color:'#fff',
+      padding:'10px 12px', borderRadius:'10px', zIndex:10000
+    });
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(), 2200);
+  }
 
-    // GraphQL API-anrop till Stash
-    async function stashGraphQL(query, variables = {}) {
-        try {
-            const response = await fetch('/graphql', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    query: query,
-                    variables: variables
-                })
-            });
+  // ---------------- Stash GraphQL helpers ----------------
+  async function stashGraphQL(query, variables){
+    const resp = await fetch('/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ query, variables })
+    });
+    if(!resp.ok) throw new Error(`GraphQL HTTP ${resp.status}`);
+    const data = await resp.json();
+    if(data.errors) throw new Error(data.errors.map(e=>e.message).join('; '));
+    return data.data;
+  }
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`GraphQL request failed: ${response.status} ${response.statusText} - ${errorText}`);
-            }
+  function getCurrentSceneId(){
+    // matcher /scenes/12345 eller /scenes/12345?... 
+    const m = location.pathname.match(/\/scenes\/(\d+)/);
+    return m ? m[1] : null;
+  }
 
-            const result = await response.json();
-            
-            if (result.errors) {
-                throw new Error(`GraphQL errors: ${result.errors.map(e => e.message).join(', ')}`);
-            }
+  async function getScenePerformerIds(sceneId){
+    const q = `
+      query($id: ID!){
+        findScene(id:$id){ id performers { id } }
+      }
+    `;
+    const d = await stashGraphQL(q, { id: sceneId });
+    const arr = (d?.findScene?.performers || []).map(p => parseInt(p.id,10)).filter(n => Number.isFinite(n));
+    return Array.from(new Set(arr));
+  }
 
-            return result.data;
-        } catch (error) {
-            console.error('Stash GraphQL error:', error);
-            throw error;
-        }
-    }
-
-// Sök performer på namn eller alias (två steg)
-async function findPerformerByName(name) {
-    /* --- 1) exakt match på fältet name ----------------------------------- */
-    const qName = /* GraphQL */ `
-      query FindByName($v:String!) {
+  async function findPerformerByName(name){
+    const q = `
+      query FindPerformer($name:String!){
         findPerformers(
-          performer_filter:{ name:{ value:$v, modifier:EQUALS } }
-          filter:{ per_page:1 }
+          performer_filter:{ OR:{
+            name:{ value:$name, modifier:EQUALS },
+            aliases:{ value:$name, modifier:EQUALS }
+          }}
+          filter:{ per_page: 1 }
         ){
-          performers { id name }
+          performers{ id name }
         }
-      }`.trim();
+      }
+    `;
+    const d = await stashGraphQL(q, { name });
+    return d?.findPerformers?.performers?.[0] || null;
+  }
 
-    try {
-        // försök med name
-        let data = await stashGraphQL(qName, { v: name });
-        if (data.findPerformers.performers.length)
-            return data.findPerformers.performers[0];
+  async function createPerformerIfAllowed(name){
+    if(!pluginSettings.create_new_performers) return null;
+    const q = `
+      mutation($input: PerformerCreateInput!){
+        performerCreate(input:$input){ id name }
+      }
+    `;
+    try{
+      const d = await stashGraphQL(q, { input: { name: (name || '').trim() } });
+      return d?.performerCreate || null;
+    }catch(e){
+      const msg = String(e?.message || e);
+      // Om personen redan finns i DB: hämta den och fortsätt utan fel
+      if(/already exists/i.test(msg)){
+        try{
+          const p = await findPerformerByName(name);
+          if (p) return p;
+        }catch(_){}
+      }
+      throw e;
+    }
+  }
 
-        /* --- 2) ingen träff – prova exakt match på fältet alias ------------- */
-        const qAlias = /* GraphQL */ `
-          query FindByAlias($v:String!){
-            findPerformers(
-              performer_filter:{ aliases:{ value:$v, modifier:EQUALS } }
-              filter:{ per_page:1 }
-            ){
-              performers { id name }
+  async function addPerformerToSceneByName(name){
+    const sceneId = getCurrentSceneId();
+    if(!sceneId){ notify('Kunde inte hitta scen-ID', true); return; }
+
+    let perf = await findPerformerByName(name);
+    if(!perf){
+      perf = await createPerformerIfAllowed(name);
+      if(!perf){
+        notify(`Hittade ingen performer "${name}"`, true);
+        return;
+      }
+    }
+
+    const existing = await getScenePerformerIds(sceneId);
+    const pid = parseInt(perf.id, 10);
+    if(existing.includes(pid)){
+      notify(`"${perf.name}" finns redan i scenen`);
+      return;
+    }
+
+    const allIds = Array.from(new Set([...existing, pid]));
+    const q = `
+      mutation($input: SceneUpdateInput!){
+        sceneUpdate(input:$input){ id }
+      }
+    `;
+    await stashGraphQL(q, { input: { id: sceneId, performer_ids: allIds } });
+    notify(`La till "${perf.name}" i scenen`);
+  }
+
+  // ---------------- Settings panel (högerklick) ----------------
+  function createSettingsPanel(){
+    if (document.querySelector('.fr-settings-panel')) return; // en instans åt gången
+    const wrap = document.createElement('div');
+    wrap.className = 'fr-settings-panel';
+    wrap.innerHTML = `
+      <div class="fr-sp-head">Face Recognition – Inställningar</div>
+      <div class="fr-sp-body">
+        <label>API URL:</label>
+        <input type="text" id="fr-api-url" value="${pluginSettings.api_url}">
+
+        <label>API-timeout (sek):</label>
+        <input type="number" id="fr-api-timeout" value="${pluginSettings.api_timeout}" min="1" max="120">
+
+        <label>Visa konfidensgrad:</label>
+        <input type="checkbox" id="fr-show-confidence" ${pluginSettings.show_confidence ? 'checked' : ''}>
+
+        <label>Minimum konfidens (0–100):</label>
+        <input type="number" id="fr-min-confidence" value="${pluginSettings.min_confidence}" min="0" max="100">
+
+        <label>
+          <input type="checkbox" id="fr-auto-add" ${pluginSettings.auto_add_performers ? 'checked' : ''}>
+          Lägg automatiskt till performers i scenen
+        </label>
+
+        <label>
+          <input type="checkbox" id="fr-create-new" ${pluginSettings.create_new_performers ? 'checked' : ''}>
+          Skapa nya performers för okända ansikten
+        </label>
+
+        <hr style="margin:12px 0;border-color:#3a3a3a;">
+
+        <label>Max förslag (topp-K):</label>
+        <input type="number" id="fr-max-suggestions" value="${pluginSettings.max_suggestions}" min="1" max="10">
+
+        <label>Bildkälla (local | stashdb | both):</label>
+        <input type="text" id="fr-image-source" value="${pluginSettings.image_source}">
+
+        <label>StashDB endpoint (proxy använder denna):</label>
+        <input type="text" id="fr-stashdb-endpoint" value="${pluginSettings.stashdb_endpoint}">
+
+        <div class="fr-sp-actions">
+          <button type="button" id="fr-sp-save">Spara</button>
+          <button type="button" id="fr-sp-close">Stäng</button>
+        </div>
+      </div>`;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .fr-settings-panel{position:fixed;top:64px;right:16px;width:320px;background:#16181d;color:#e5e7eb;border:1px solid #2a2f39;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.6);z-index:10000}
+      .fr-sp-head{font-weight:600;padding:10px 12px;border-bottom:1px solid #2a2f39}
+      .fr-sp-body{padding:12px}
+      .fr-sp-body label{display:block;margin-top:10px;margin-bottom:6px;font-size:12px;color:#aab0bb}
+      .fr-sp-body input[type=text], .fr-sp-body input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid #2a2f39;background:#0f1115;color:#e5e7eb}
+      .fr-sp-actions{display:flex;gap:8px;margin-top:14px}
+      .fr-sp-actions button{background:#2a61ff;color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
+      .fr-sp-actions button#fr-sp-close{background:#3a3f4b}`;
+    wrap.appendChild(style);
+    document.body.appendChild(wrap);
+    wrap.querySelector('#fr-sp-close').addEventListener('click', () => wrap.remove());
+    wrap.querySelector('#fr-sp-save').addEventListener('click', () => { saveSettingsFromPanel(wrap); wrap.remove(); });
+  }
+  function saveSettingsFromPanel(root){
+    try{
+      const prevApiUrl = pluginSettings.api_url;
+      pluginSettings.api_url = normalizeApiBaseUrl(root.querySelector('#fr-api-url').value) || prevApiUrl;
+      pluginSettings.api_timeout = parseInt(root.querySelector('#fr-api-timeout').value) || pluginSettings.api_timeout;
+      pluginSettings.show_confidence = !!root.querySelector('#fr-show-confidence').checked;
+      pluginSettings.min_confidence = Math.min(100, Math.max(0, parseInt(root.querySelector('#fr-min-confidence').value) || 0));
+      pluginSettings.auto_add_performers = !!root.querySelector('#fr-auto-add').checked;
+      pluginSettings.create_new_performers = !!root.querySelector('#fr-create-new').checked;
+      pluginSettings.max_suggestions = Math.min(10, Math.max(1, parseInt(root.querySelector('#fr-max-suggestions').value) || 3));
+      pluginSettings.image_source = (root.querySelector('#fr-image-source').value || 'both').toLowerCase();
+      pluginSettings.stashdb_endpoint = root.querySelector('#fr-stashdb-endpoint').value || 'https://stashdb.org/graphql';
+      saveSettings();
+      notify('Inställningar sparade');
+    }catch(e){ console.error('Kunde inte spara inställningar:', e); notify('Fel vid sparning av inställningar', true); }
+  }
+
+  // ---------------- Hjälpare för video/overlay ----------------
+  function findVideoElement(){
+    for (const sel of ['.video-js video','.vjs-tech','video[playsinline]','video']){
+      const el = document.querySelector(sel);
+      if(el) return el;
+    }
+    return null;
+  }
+  function findVideoContainer(){
+    const video = findVideoElement(); if(!video) return null;
+    let c = video.parentElement;
+    while(c && c !== document.body){
+      const cs = getComputedStyle(c);
+      if(cs.position === 'relative' || cs.position === 'absolute') return c;
+      c = c.parentElement;
+    }
+    return video.parentElement || null;
+  }
+  function clearOverlay(){ document.querySelectorAll('.frp-overlay').forEach(n=>n.remove()); }
+  function ensureOverlay(){
+    const cont = findVideoContainer() || document.body;
+    let ov = cont.querySelector('.frp-overlay');
+    if(ov) return ov;
+    ov = document.createElement('div');
+    ov.className = 'frp-overlay';
+    const cs = getComputedStyle(cont);
+    if(cont === document.body || cs.position === 'static'){
+      Object.assign(ov.style, { position:'fixed', inset:0 });
+    } else {
+      ov.style.position = 'absolute';
+      ov.style.inset = '0';
+    }
+    ov.style.pointerEvents = 'none';
+    ov.style.zIndex = '2147483647';
+    cont.appendChild(ov);
+    return ov;
+  }
+
+  // ---------------- Tooltip (förhandsbild) ----------------
+  function makePreviewTooltip(){
+    const tip = document.createElement('div');
+    tip.className = 'frp-preview';
+    Object.assign(tip.style, {
+      position:'fixed', left:'0px', top:'0px',
+      borderRadius:'10px', border:'1px solid rgba(255,255,255,0.12)',
+      background:'#0f1115', boxShadow:'0 8px 18px rgba(0,0,0,.35)',
+      pointerEvents:'none', zIndex:2147483647,
+      overflow:'visible',
+      maxWidth:'150px',
+      maxHeight:'90vh'
+    });
+
+    const img = document.createElement('img');
+    img.alt = 'preview';
+    img.className = 'frp-avatar';
+    Object.assign(img.style, {
+      display:'block',
+      width:'100%',
+      height:'auto',
+      objectFit:'contain',
+      maxWidth:'150px',
+      maxHeight:'90vh'
+    });
+    img.style.setProperty('max-width','150px','important');
+    img.style.setProperty('max-height','90vh','important');
+    img.style.setProperty('width','100%','important');
+    img.style.setProperty('height','auto','important');
+    img.style.setProperty('object-fit','contain','important');
+
+    tip.appendChild(img);
+    return { tip, img };
+  }
+
+  // ---------------- Bild-URL: bytes-mode via backend ----------------
+  function bytesEndpointFor(name){
+    const u = new URL(pluginSettings.api_url.replace(/[/]$/, ''));
+    const qs = new URLSearchParams({
+      name,
+      source: pluginSettings.image_source,
+      stashdb_endpoint: pluginSettings.stashdb_endpoint,
+      format: 'bytes'
+    });
+    return `${u.origin}${u.pathname}/resolve_image?${qs.toString()}`;
+  }
+
+  async function resolveImageURL(name){
+    if (imageCache.has(name)) return imageCache.get(name);
+    const url = bytesEndpointFor(name);
+    imageCache.set(name, url);
+    return url;
+  }
+
+  // ---------------- Hover-preview per rad ----------------
+  function attachHoverPreview(rowEl, name){
+    let tipRef = null, enterTimer = null;
+
+    function placeTipNear(el, tip){
+      const r  = el.getBoundingClientRect();
+      const tr = tip.getBoundingClientRect();
+      const pad = 8;
+      const vw = window.innerWidth, vh = window.innerHeight;
+
+      let x = r.right + pad;
+      let y = r.top - 4;
+
+      if (x + tr.width  > vw) x = Math.max(pad, r.left - pad - tr.width);
+      if (y + tr.height > vh) y = Math.max(pad, vh - tr.height - pad);
+
+      tip.style.left = x + 'px';
+      tip.style.top  = y + 'px';
+    }
+
+    rowEl.addEventListener('mouseenter', ()=>{
+      enterTimer = setTimeout(async ()=>{
+        const url = await resolveImageURL(name);
+        if (!url || tipRef) return;
+        const { tip, img } = makePreviewTooltip();
+        tip.style.maxWidth = '150px';
+        tip.style.maxHeight = '90vh';
+        img.style.maxWidth = '150px';
+        img.style.width = '100%';
+        img.style.height = 'auto';
+        img.style.objectFit = 'contain';
+
+        img.onload = () => { document.body.appendChild(tip); placeTipNear(rowEl, tip); };
+        img.src = url;
+        tipRef = tip;
+      }, 150);
+    });
+
+    rowEl.addEventListener('mousemove', ()=>{ if (tipRef) placeTipNear(rowEl, tipRef); });
+    rowEl.addEventListener('mouseleave', ()=>{
+      clearTimeout(enterTimer); enterTimer = null;
+      if (tipRef){ tipRef.remove(); tipRef = null; }
+    });
+  }
+
+  // ---------------- Overlay-rendering ----------------
+  function renderRecognizeOverlay(items){
+    clearOverlay();
+    const video = findVideoElement();
+    if(!video){ notify('Ingen video för overlay', true); return; }
+    const ov = ensureOverlay();
+    const r = video.getBoundingClientRect();
+    const vw = video.clientWidth || r.width;
+    const vh = video.clientHeight || r.height;
+    const iw = video.videoWidth || vw;
+    const ih = video.videoHeight || vh;
+    const sx = vw/iw, sy = vh/ih;
+
+    items.forEach(face=>{
+      const {x,y,w,h} = face.box;
+      const left = r.left + x*sx;
+      const top  = r.top  + y*sy;
+      const width  = w*sx;
+      const height = h*sy;
+
+      const box = document.createElement('div');
+      Object.assign(box.style, {
+        position:'fixed', left:left+'px', top:top+'px',
+        width:width+'px', height:height+'px',
+        border:'2px solid rgba(0,200,255,0.9)', borderRadius:'6px',
+        boxShadow:'0 0 0 1px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.4)'
+      });
+
+      const sug = document.createElement('div');
+      Object.assign(sug.style, {
+        position:'absolute', left:'0px', top:'100%', marginTop:'6px',
+        minWidth:'240px', background:'rgba(18,18,18,0.92)', color:'#f2f2f2',
+        border:'1px solid rgba(255,255,255,0.12)', borderRadius:'10px',
+        overflow:'hidden', backdropFilter:'blur(6px)', pointerEvents:'auto'
+      });
+
+      const minPct = Math.max(0, Math.min(100, pluginSettings.min_confidence));
+      const cands = (face.candidates||[])
+        .filter(c => (c.score*100) >= minPct)
+        .slice(0, pluginSettings.max_suggestions || 3);
+
+      if (cands.length === 0){
+        const row = document.createElement('div');
+        Object.assign(row.style, { padding:'8px 10px', borderBottom:'1px solid rgba(255,255,255,0.06)' });
+        row.textContent = '(inga kandidater över tröskeln)';
+        sug.appendChild(row);
+      } else {
+        cands.forEach(c => {
+          const row = document.createElement('div');
+          Object.assign(row.style, {
+            display:'flex', alignItems:'center', gap:'10px',
+            padding:'8px 10px', lineHeight:'1.25',
+            borderBottom:'1px solid rgba(255,255,255,0.06)',
+            cursor:'pointer'
+          });
+          const span = document.createElement('span');
+          span.textContent = pluginSettings.show_confidence ? `${c.name} (${Math.round(c.score*100)}%)` : c.name;
+          Object.assign(span.style, { fontSize:'14px', fontWeight:'600', color:'#f7f7f7', textShadow:'0 1px 1px rgba(0,0,0,0.4)' });
+          row.appendChild(span);
+
+          // --- NYTT: klick = lägg till i scenen ---
+          row.addEventListener('click', async (e)=>{
+            e.preventDefault(); e.stopPropagation();
+            row.style.opacity = '0.6';
+            try{
+              await addPerformerToSceneByName(c.name);
+            }catch(err){
+              console.error(err);
+              notify(`Misslyckades: ${err.message||err}`, true);
+            }finally{
+              row.style.opacity = '';
             }
-          }`.trim();
+          });
 
-        data = await stashGraphQL(qAlias, { v: name });
-        return data.findPerformers.performers[0] ?? null;
-
-    } catch (e) {
-        console.error('Error finding performer:', e);
-        return null;
-    }
-}
-
-
-
-    // Skapa ny performer
-    async function createPerformer(name) {
-        const mutation = `
-            mutation PerformerCreate($input: PerformerCreateInput!) {
-                performerCreate(input: $input) {
-                    id
-                    name
-                }
-            }
-        `;
-
-        try {
-            const data = await stashGraphQL(mutation, {
-                input: {
-                    name: name,
-                    details: `Automatiskt skapad av Face Recognition Plugin`
-                }
-            });
-            return data.performerCreate;
-        } catch (error) {
-            console.error('Error creating performer:', error);
-            throw error;
-        }
-    }
-
-    // Hämta aktuell scen-information
-    async function getSceneInfo(sceneId) {
-        const query = `
-            query FindScene($id: ID!) {
-                findScene(id: $id) {
-                    id
-                    title
-                    performers {
-                        id
-                        name
-                    }
-                }
-            }
-        `;
-
-        try {
-            const data = await stashGraphQL(query, { id: sceneId });
-            return data.findScene;
-        } catch (error) {
-            console.error('Error getting scene info:', error);
-            throw error;
-        }
-    }
-
-    // Uppdatera scen med nya performers
-    async function updateScenePerformers(sceneId, performerIds) {
-        const mutation = `
-            mutation SceneUpdate($input: SceneUpdateInput!) {
-                sceneUpdate(input: $input) {
-                    id
-                    performers {
-                        id
-                        name
-                    }
-                }
-            }
-        `;
-
-        try {
-            const data = await stashGraphQL(mutation, {
-                input: {
-                    id: sceneId,
-                    performer_ids: performerIds
-                }
-            });
-            return data.sceneUpdate;
-        } catch (error) {
-            console.error('Error updating scene performers:', error);
-            throw error;
-        }
-    }
-
-    // Lägg till performer till scen
-    async function addPerformerToScene(performerName, sceneId) {
-        try {
-            // Först, försök hitta befintlig performer
-            let performer = await findPerformerByName(performerName);
-            
-            // Om performer inte hittades
-            if (!performer) {
-                if (pluginSettings.create_new_performers) {
-                    try {
-                        performer = await createPerformer(performerName);
-                        showMessage(`Skapade ny performer: ${performerName}`, 'success');
-                    } catch (createError) {
-                        // Specifik hantering för om skapandet misslyckas (t.ex. pga race condition)
-                        if (createError.message.includes('already exists')) {
-                            showMessage(`Performer '${performerName}' skapades av annan process, försöker hitta igen.`, 'info');
-                            performer = await findPerformerByName(performerName); // Försök hitta igen
-                            if (!performer) {
-                                throw new Error(`Kunde inte hitta eller skapa performer '${performerName}'.`);
-                            }
-                        } else {
-                            throw createError; // Annat fel vid skapande
-                        }
-                    }
-                } else {
-                    throw new Error(`Performer '${performerName}' hittades inte och skapande av nya performers är inaktiverat.`);
-                }
-            }
-
-            // Hämta aktuella performers för scenen
-            const sceneInfo = await getSceneInfo(sceneId);
-            const currentPerformerIds = sceneInfo.performers.map(p => p.id);
-            
-            // Kontrollera om performer redan är kopplad till scenen
-            if (currentPerformerIds.includes(performer.id)) {
-                showMessage(`${performerName} är redan kopplad till denna scen`, 'info');
-                return;
-            }
-
-            // Lägg till ny performer till listan
-            const updatedPerformerIds = [...currentPerformerIds, performer.id];
-            
-            // Uppdatera scenen
-            await updateScenePerformers(sceneId, updatedPerformerIds);
-            showMessage(`Lade till ${performerName} till scenen`, 'success');
-            
-        } catch (error) {
-            console.error('Error adding performer to scene:', error);
-            showMessage(`Fel vid tillägg av ${performerName}: ${error.message}`, 'error');
-        }
-    }
-
-    // Hitta video-elementet på sidan
-    function findVideoElement() {
-        return document.querySelector('video') || document.querySelector('.video-js video');
-    }
-
-    // Hitta video-containern
-    function findVideoContainer() {
-        const video = findVideoElement();
-        if (!video) return null;
-        
-        // Försök hitta den närmaste containern som har position relative/absolute
-        let container = video.parentElement;
-        while (container && container !== document.body) {
-            const style = window.getComputedStyle(container);
-            if (style.position === 'relative' || style.position === 'absolute') {
-                return container;
-            }
-            container = container.parentElement;
-        }
-        
-        // Fallback till video-elementets förälder
-        return video.parentElement;
-    }
-
-    // Extrahera aktuell frame från video som canvas
-    function captureVideoFrame() {
-        const video = findVideoElement();
-        if (!video) {
-            throw new Error('Ingen video hittades på sidan');
-        }
-
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        
-        canvas.width = video.videoWidth || video.clientWidth;
-        canvas.height = video.videoHeight || video.clientHeight;
-        
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        return canvas;
-    }
-
-    // Konvertera canvas till blob
-    function canvasToBlob(canvas) {
-        return new Promise((resolve) => {
-            canvas.toBlob(resolve, 'image/jpeg', 0.8);
+          sug.appendChild(row);
+          attachHoverPreview(row, c.name);
         });
+        const last = sug.lastElementChild; if(last) last.style.borderBottom = 'none';
+      }
+
+      box.appendChild(sug);
+      ov.appendChild(box);
+    });
+  }
+
+  // ---------------- UI-knapp ----------------
+  function createPluginButton(){
+    const btn = document.createElement('button');
+    btn.textContent = 'Identifiera Ansikten';
+    btn.className = 'face-recognition-button';
+    btn.style.marginRight = '50px';
+    btn.addEventListener('click', performFaceRecognition);
+    btn.addEventListener('contextmenu', e => { e.preventDefault(); createSettingsPanel(); });
+    return btn;
+  }
+  function addPluginButton(){
+    const c = findVideoContainer();
+    if(c && c.querySelector('.face-recognition-button')) return;
+    const btn = createPluginButton();
+    if(c){ c.appendChild(btn); }
+    else {
+      Object.assign(btn.style, { position:'fixed', top:'12px', right:'60px', zIndex:9999 });
+      document.body.appendChild(btn);
     }
+  }
 
-    // Skicka bild till API för ansiktsigenkänning
-    async function sendImageToAPI(imageBlob) {
-        const formData = new FormData();
-        formData.append('image', imageBlob, 'frame.jpg');
+  // ---------------- Huvudflöde ----------------
+  async function performFaceRecognition(){
+    try{
+      const video = findVideoElement(); if(!video) return notify('Ingen video hittad', true);
+      if(!video.videoWidth || !video.videoHeight) return notify('Video ej redo', true);
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), pluginSettings.api_timeout * 1000);
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+      if(!blob) return notify('Kunde inte skapa bild', true);
 
-        try {
-            const response = await fetch(`${pluginSettings.api_url}/api/detect`, {
-                method: 'POST',
-                body: formData,
-                signal: controller.signal
-            });
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API-fel: ${response.status} ${response.statusText} - ${errorText}`);
-            }
-
-            return await response.json();
-        } catch (error) {
-            clearTimeout(timeoutId);
-            if (error.name === 'AbortError') {
-                throw new Error('API-anrop timeout');
-            }
-            throw error;
-        }
+      const fd = new FormData();
+      fd.append('image', new File([blob], 'frame.jpg', { type:'image/jpeg' }));
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), Math.max(3, pluginSettings.api_timeout) * 1000);
+      const apiBase = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
+      const url = `${apiBase.replace(/[/]$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`;
+      const resp = await fetch(url, { method:'POST', body:fd, signal:ctrl.signal });
+      clearTimeout(to);
+      if(!resp.ok) throw new Error(`API-fel ${resp.status}`);
+      const data = await resp.json();
+      renderRecognizeOverlay(Array.isArray(data) ? data : []);
     }
+    catch(e){ console.error(e); notify('Fel vid ansiktsigenkänning', true); }
+  }
 
-    // Skapa overlay för att visa resultat
-    function createOverlay(container) {
-        const overlay = document.createElement('div');
-        overlay.className = 'face-recognition-overlay';
-        container.appendChild(overlay);
-        return overlay;
-    }
+  function init(){
+    loadSettings();
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addPluginButton);
+    else addPluginButton();
 
-    // Skapa bounding box för ett ansikte med interaktiva knappar
-    function createBoundingBox(face, containerWidth, containerHeight, index) {
-        const box = document.createElement('div');
-        box.className = 'face-recognition-box';
-        
-        // Beräkna position och storlek relativt till container
-        const left = (face.bbox[0] / containerWidth) * 100;
-        const top = (face.bbox[1] / containerHeight) * 100;
-        const width = ((face.bbox[2] - face.bbox[0]) / containerWidth) * 100;
-        const height = ((face.bbox[3] - face.bbox[1]) / containerHeight) * 100;
-        
-        box.style.left = `${left}%`;
-        box.style.top = `${top}%`;
-        box.style.width = `${width}%`;
-        box.style.height = `${height}%`;
-        
-        // Sätt färg baserat på konfidensgrad
-        const confidence = face.confidence * 100;
-        if (confidence >= 70) {
-            box.classList.add('high-confidence');
-        } else if (confidence >= 40) {
-            box.classList.add('medium-confidence');
-        } else {
-            box.classList.add('low-confidence');
-        }
-        
-        // Skapa label med namn och konfidensgrad
-        const label = document.createElement('div');
-        label.className = 'face-recognition-label';
-        
-        let labelText = face.name;
-        if (pluginSettings.show_confidence) {
-            labelText += ` (${confidence.toFixed(1)}%)`;
-        }
-        label.textContent = labelText;
-        
-        // Skapa knapp för att lägga till performer (endast för kända ansikten)
-        if (face.name !== 'UNKNOWN') {
-            const addButton = document.createElement('button');
-            addButton.className = 'face-recognition-add-button';
-            addButton.textContent = '+';
-            addButton.title = `Lägg till ${face.name} till scenen`;
-            addButton.onclick = (e) => {
-                e.stopPropagation();
-                addPerformerToCurrentScene(face.name);
-            };
-            
-            // Positionera knappen i övre högra hörnet av bounding box
-            addButton.style.position = 'absolute';
-            addButton.style.top = '2px';
-            addButton.style.right = '2px';
-            addButton.style.width = '20px';
-            addButton.style.height = '20px';
-            addButton.style.fontSize = '12px';
-            addButton.style.background = '#007bff';
-            addButton.style.color = 'white';
-            addButton.style.border = 'none';
-            addButton.style.borderRadius = '50%';
-            addButton.style.cursor = 'pointer';
-            addButton.style.pointerEvents = 'auto';
-            
-            box.appendChild(addButton);
-        }
-        
-        box.appendChild(label);
-        
-        return box;
-    }
+    const mo = new MutationObserver(() => setTimeout(addPluginButton, 600));
+    mo.observe(document.body, { childList:true, subtree:true });
 
-    // Lägg till performer till aktuell scen
-    async function addPerformerToCurrentScene(performerName) {
-        const sceneId = getCurrentSceneId();
-        if (!sceneId) {
-            showMessage('Kunde inte hitta scen-ID', 'error');
-            return;
-        }
+    let tries = 0;
+    const iv = setInterval(() => {
+      try{ addPluginButton(); }catch{}
+      if(findVideoElement() || ++tries > 20) clearInterval(iv);
+    }, 1000);
+  }
 
-        try {
-            await addPerformerToScene(performerName, sceneId);
-        } catch (error) {
-            console.error('Error adding performer to scene:', error);
-            showMessage(`Fel vid tillägg av performer: ${error.message}`, 'error');
-        }
-    }
-
-    // Visa resultat som overlay
-    function displayResults(results, container) {
-        // Ta bort befintligt overlay
-        removeOverlay();
-        
-        if (!results.faces || results.faces.length === 0) {
-            showMessage('Inga ansikten hittades', 'info');
-            return;
-        }
-        
-        // Skapa nytt overlay
-        currentOverlay = createOverlay(container);
-        
-        // Filtrera ansikten baserat på minimum konfidensgrad
-        const filteredFaces = results.faces.filter(face => 
-            (face.confidence * 100) >= pluginSettings.min_confidence
-        );
-        
-        if (filteredFaces.length === 0) {
-            showMessage(`Inga ansikten över ${pluginSettings.min_confidence}% konfidensgrad`, 'info');
-            removeOverlay();
-            return;
-        }
-        
-        // Spara identifierade ansikten för senare användning
-        identifiedFaces = filteredFaces;
-        
-        // Skapa bounding boxes
-        filteredFaces.forEach((face, index) => {
-            const box = createBoundingBox(face, results.image_width, results.image_height, index);
-            currentOverlay.appendChild(box);
-        });
-        
-        // Automatiskt lägg till performers om inställningen är aktiverad
-        if (pluginSettings.auto_add_performers) {
-            const sceneId = getCurrentSceneId();
-            if (sceneId) {
-                const knownFaces = filteredFaces.filter(face => face.name !== 'UNKNOWN');
-                knownFaces.forEach(face => {
-                    addPerformerToScene(face.name, sceneId);
-                });
-            }
-        }
-        
-        // Skapa bulk-tillägg knapp om det finns flera kända ansikten
-        const knownFaces = filteredFaces.filter(face => face.name !== 'UNKNOWN');
-        if (knownFaces.length > 1) {
-            createBulkAddButton(knownFaces);
-        }
-        
-        // Auto-remove overlay efter 15 sekunder
-        setTimeout(() => {
-            removeOverlay();
-        }, 15000);
-    }
-
-    // Skapa knapp för att lägga till alla identifierade personer
-    function createBulkAddButton(knownFaces) {
-        const bulkButton = document.createElement('button');
-        bulkButton.className = 'face-recognition-bulk-button';
-        bulkButton.textContent = `Lägg till alla (${knownFaces.length})`;
-        bulkButton.onclick = () => {
-            const sceneId = getCurrentSceneId();
-            if (sceneId) {
-                knownFaces.forEach(face => {
-                    addPerformerToScene(face.name, sceneId);
-                });
-            }
-        };
-        
-        // Positionera knappen
-        bulkButton.style.position = 'absolute';
-        bulkButton.style.bottom = '10px';
-        bulkButton.style.right = '10px';
-        bulkButton.style.background = '#28a745';
-        bulkButton.style.color = 'white';
-        bulkButton.style.border = 'none';
-        bulkButton.style.borderRadius = '5px';
-        bulkButton.style.padding = '8px 16px';
-        bulkButton.style.cursor = 'pointer';
-        bulkButton.style.fontSize = '14px';
-        bulkButton.style.pointerEvents = 'auto';
-        bulkButton.style.zIndex = '1003';
-        
-        currentOverlay.appendChild(bulkButton);
-    }
-
-    // Ta bort overlay
-    function removeOverlay() {
-        if (currentOverlay) {
-            currentOverlay.remove();
-            currentOverlay = null;
-        }
-        identifiedFaces = [];
-    }
-
-    // Visa meddelande
-    function showMessage(message, type = 'info') {
-        const messageEl = document.createElement('div');
-        messageEl.className = `face-recognition-message face-recognition-${type}`;
-        messageEl.textContent = message;
-        
-        // Styling baserat på typ
-        const styles = {
-            info: { background: '#17a2b8', color: 'white' },
-            success: { background: '#28a745', color: 'white' },
-            error: { background: '#dc3545', color: 'white' }
-        };
-        
-        const style = styles[type] || styles.info;
-        Object.assign(messageEl.style, {
-            position: 'fixed',
-            top: '20px',
-            right: '20px',
-            padding: '10px 20px',
-            borderRadius: '5px',
-            zIndex: '1004',
-            maxWidth: '300px',
-            fontSize: '14px',
-            ...style
-        });
-        
-        document.body.appendChild(messageEl);
-        
-        setTimeout(() => {
-            messageEl.remove();
-        }, 4000);
-    }
-
-    // Visa loading-indikator
-    function showLoading() {
-        const loading = document.createElement('div');
-        loading.className = 'face-recognition-loading';
-        loading.innerHTML = `
-            <div class="face-recognition-spinner"></div>
-            <div>Analyserar ansikten...</div>
-        `;
-        
-        document.body.appendChild(loading);
-        return loading;
-    }
-
-    // Huvudfunktion för ansiktsigenkänning
-    async function performFaceRecognition() {
-        if (isProcessing) {
-            return;
-        }
-        
-        isProcessing = true;
-        const loading = showLoading();
-        
-        try {
-            // Hitta video och container
-            const container = findVideoContainer();
-            if (!container) {
-                throw new Error('Kunde inte hitta video-container');
-            }
-            
-            // Hämta aktuell scen-ID
-            currentSceneId = getCurrentSceneId();
-            if (!currentSceneId) {
-                console.warn('Kunde inte hitta scen-ID, performer-tillägg kommer inte att fungera');
-            }
-            
-            // Pausa video
-            const video = findVideoElement();
-            if (video && !video.paused) {
-                video.pause();
-            }
-            
-            // Extrahera frame
-            const canvas = captureVideoFrame();
-            const imageBlob = await canvasToBlob(canvas);
-            
-            // Skicka till API
-            const results = await sendImageToAPI(imageBlob);
-            
-            // Visa resultat
-            displayResults(results, container);
-            
-        } catch (error) {
-            console.error('Face recognition error:', error);
-            showMessage(`Fel: ${error.message}`, 'error');
-        } finally {
-            loading.remove();
-            isProcessing = false;
-        }
-    }
-
-    // Skapa inställningspanel
-    function createSettingsPanel() {
-        const panel = document.createElement('div');
-        panel.className = 'face-recognition-settings';
-        panel.innerHTML = `
-            <h4>Face Recognition Inställningar</h4>
-            <label>API URL:</label>
-            <input type="text" id="fr-api-url" value="${pluginSettings.api_url}">
-            
-            <label>Timeout (sekunder):</label>
-            <input type="number" id="fr-timeout" value="${pluginSettings.api_timeout}" min="5" max="120">
-            
-            <label>Minimum konfidensgrad (%):</label>
-            <input type="number" id="fr-min-confidence" value="${pluginSettings.min_confidence}" min="0" max="100">
-            
-            <label>
-                <input type="checkbox" id="fr-show-confidence" ${pluginSettings.show_confidence ? 'checked' : ''}>
-                Visa konfidensgrad
-            </label>
-            
-            <label>
-                <input type="checkbox" id="fr-auto-add" ${pluginSettings.auto_add_performers ? 'checked' : ''}>
-                Lägg till performers automatiskt
-            </label>
-            
-            <label>
-                <input type="checkbox" id="fr-create-new" ${pluginSettings.create_new_performers ? 'checked' : ''}>
-                Skapa nya performers för okända ansikten
-            </label>
-            
-            <div>
-                <button class="save-btn" onclick="window.faceRecognitionPlugin.saveSettingsFromPanel()">Spara</button>
-                <button class="cancel-btn" onclick="window.faceRecognitionPlugin.hideSettings()">Avbryt</button>
-            </div>
-        `;
-        
-        document.body.appendChild(panel);
-        return panel;
-    }
-
-    // Visa inställningar
-    function showSettings() {
-        if (settingsPanel) {
-            hideSettings();
-        }
-        settingsPanel = createSettingsPanel();
-    }
-
-    // Dölj inställningar
-    function hideSettings() {
-        if (settingsPanel) {
-            settingsPanel.remove();
-            settingsPanel = null;
-        }
-    }
-
-    // Spara inställningar från panel
-    function saveSettingsFromPanel() {
-        if (!settingsPanel) return;
-        
-        pluginSettings.api_url = document.getElementById('fr-api-url').value;
-        pluginSettings.api_timeout = parseInt(document.getElementById('fr-timeout').value);
-        pluginSettings.min_confidence = parseInt(document.getElementById('fr-min-confidence').value);
-        pluginSettings.show_confidence = document.getElementById('fr-show-confidence').checked;
-        pluginSettings.auto_add_performers = document.getElementById('fr-auto-add').checked;
-        pluginSettings.create_new_performers = document.getElementById('fr-create-new').checked;
-        
-        saveSettings();
-        hideSettings();
-        showMessage('Inställningar sparade', 'success');
-    }
-
-    // Skapa plugin-knapp
-    function createPluginButton() {
-        const button = document.createElement('button');
-        button.className = 'face-recognition-button';
-        button.textContent = 'Identifiera Ansikten';
-        button.onclick = performFaceRecognition;
-        
-        // Lägg till högerklick för inställningar
-        button.oncontextmenu = (e) => {
-            e.preventDefault();
-            showSettings();
-        };
-        
-        return button;
-    }
-
-    // Lägg till plugin-knapp till video-container
-    function addPluginButton() {
-        const container = findVideoContainer();
-        if (!container) return;
-        
-        // Kontrollera om knappen redan finns
-        if (container.querySelector('.face-recognition-button')) return;
-        
-        const button = createPluginButton();
-        container.appendChild(button);
-    }
-
-    // Initiera plugin
-    function initPlugin() {
-        loadSettings();
-        
-        // Lägg till knapp när sidan laddas
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', addPluginButton);
-        } else {
-            addPluginButton();
-        }
-        
-        // Observera DOM-ändringar för att lägga till knapp på nya sidor
-        const observer = new MutationObserver(() => {
-            setTimeout(addPluginButton, 1000);
-        });
-        
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-        
-        // Exponera funktioner globalt för debugging
-        window.faceRecognitionPlugin = {
-            performFaceRecognition,
-            showSettings,
-            hideSettings,
-            saveSettingsFromPanel,
-            removeOverlay,
-            addPerformerToCurrentScene,
-            getCurrentSceneId,
-            identifiedFaces: () => identifiedFaces
-        };
-    }
-
-    // Starta plugin
-    initPlugin();
-
+  try{ init(); }catch(e){ console.error('Initfel:', e); }
 })();
-

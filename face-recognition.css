@@ -1,360 +1,126 @@
-/* Face Recognition Plugin Styles */
+/* face-recognition.css (uppdaterad för större, icke-beskurna previews) */
 
-.face-recognition-overlay {
+.frp-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 1000;
-}
-
-.face-recognition-box {
-  position: absolute;
-  border: 3px solid;
-  border-radius: 4px;
-  pointer-events: none;
-  transition: all 0.3s ease;
-}
-
-.face-recognition-box.high-confidence {
-  border-color: #28a745; /* Grön för hög konfidensgrad */
-}
-
-.face-recognition-box.medium-confidence {
-  border-color: #ffc107; /* Gul för medium konfidensgrad */
-}
-
-.face-recognition-box.low-confidence {
-  border-color: #dc3545; /* Röd för låg konfidensgrad */
-}
-
-.face-recognition-label {
-  position: absolute;
-  top: -25px;
-  left: 0;
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: bold;
-  white-space: nowrap;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.face-recognition-add-button {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 20px;
-  height: 20px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: bold;
+  inset: 0;
   pointer-events: auto;
-  transition: background-color 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  z-index: 2147483647;
+  font-family: ui-sans-serif, system-ui;
 }
 
-.face-recognition-add-button:hover {
-  background: #0056b3;
-  transform: scale(1.1);
-}
-
-.face-recognition-bulk-button {
+.frp-face-box {
   position: absolute;
-  bottom: 10px;
-  right: 10px;
-  background: #28a745;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: bold;
+  border: 2px solid rgba(0, 200, 255, 0.9);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.4);
+  pointer-events: none;
+}
+
+:root {
+  --fr-preview-max: none; /* tillåt originalstorlek */
+  --fr-preview-border: 1px solid rgba(255,255,255,.25);
+  --fr-preview-radius: 10px;
+  --fr-preview-bg: rgba(0,0,0,.45);
+  --fr-preview-padding: 0;
+  --fr-preview-shadow: 0 4px 18px rgba(0,0,0,.45);
+}
+
+.frp-suggestions {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 6px;
+  min-width: 220px;
+  max-width: none;
+  width: max-content;
+  background: rgba(18, 18, 18, 0.92);
+  color: #f2f2f2;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  overflow: visible;
+  backdrop-filter: blur(6px);
   pointer-events: auto;
-  z-index: 1003;
-  transition: background-color 0.3s ease;
 }
 
-.face-recognition-bulk-button:hover {
-  background: #1e7e34;
-}
-
-.face-recognition-button {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: bold;
-  z-index: 1001;
-  transition: background-color 0.3s ease;
-}
-
-.face-recognition-button:hover {
-  background: #0056b3;
-}
-
-.face-recognition-button:disabled {
-  background: #6c757d;
-  cursor: not-allowed;
-}
-
-.face-recognition-loading {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 20px;
-  border-radius: 10px;
-  text-align: center;
-  z-index: 1002;
-}
-
-.face-recognition-spinner {
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid #007bff;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 10px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.face-recognition-message {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  padding: 10px 20px;
-  border-radius: 5px;
-  z-index: 1004;
-  max-width: 300px;
-  font-size: 14px;
-  font-weight: bold;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-}
-
-.face-recognition-info {
-  background: #17a2b8;
-  color: white;
-}
-
-.face-recognition-success {
-  background: #28a745;
-  color: white;
-}
-
-.face-recognition-error {
-  background: #dc3545;
-  color: white;
-}
-
-.face-recognition-settings {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(0, 0, 0, 0.95);
-  color: white;
-  padding: 20px;
-  border-radius: 10px;
-  z-index: 1005;
-  min-width: 300px;
-  max-width: 400px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-}
-
-.face-recognition-settings h4 {
-  margin: 0 0 15px 0;
-  font-size: 16px;
-  text-align: center;
-  border-bottom: 1px solid #444;
-  padding-bottom: 10px;
-}
-
-.face-recognition-settings label {
-  display: block;
-  margin: 12px 0 4px 0;
-  font-size: 13px;
-  font-weight: bold;
-}
-
-.face-recognition-settings input[type="text"],
-.face-recognition-settings input[type="number"] {
-  width: 100%;
-  padding: 6px 10px;
-  border: 1px solid #555;
-  border-radius: 4px;
-  background: #333;
-  color: white;
-  font-size: 13px;
-}
-
-.face-recognition-settings input[type="text"]:focus,
-.face-recognition-settings input[type="number"]:focus {
-  outline: none;
-  border-color: #007bff;
-  box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
-}
-
-.face-recognition-settings input[type="checkbox"] {
-  margin-right: 8px;
-  transform: scale(1.2);
-}
-
-.face-recognition-settings label:has(input[type="checkbox"]) {
+.frp-suggestion {
   display: flex;
-  align-items: center;
-  cursor: pointer;
-  margin: 10px 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  line-height: 1.25;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  width: max-content;
+  overflow: visible;
 }
 
-.face-recognition-settings button {
-  margin: 15px 8px 0 0;
-  padding: 8px 16px;
+.frp-suggestion:last-child { border-bottom: none; }
+
+.frp-avatar,
+.frp-avatar img,
+img.frp-avatar,
+.frp-avatar[style],
+.frp-avatar[data-fr-preview] {
+  width: auto !important;
+  height: auto !important;
+  max-width: var(--fr-preview-max) !important;
+  max-height: var(--fr-preview-max) !important;
+  object-fit: contain !important;        /* visa hela ansiktet */
+  background: none !important;           /* om bakgrundsbild används, slå av */
+  border-radius: 8px;
+  flex: 0 0 auto !important;             /* inte låst till 56px */
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  display: block !important;
   border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: bold;
-  transition: background-color 0.3s ease;
+  padding: 0;
 }
 
-.face-recognition-settings .save-btn {
-  background: #28a745;
-  color: white;
+.frp-avatar > img {
+  width: inherit !important;
+  height: inherit !important;
+  max-width: inherit !important;
+  max-height: inherit !important;
+  object-fit: inherit !important;
+  display: block !important;
 }
 
-.face-recognition-settings .save-btn:hover {
-  background: #1e7e34;
+.frp-suggestion span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f7f7f7;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.4);
 }
 
-.face-recognition-settings .cancel-btn {
-  background: #6c757d;
-  color: white;
-}
-
-.face-recognition-settings .cancel-btn:hover {
-  background: #545b62;
-}
-
-/* Responsiv design för mindre skärmar */
-@media (max-width: 768px) {
-  .face-recognition-button {
-    top: 5px;
-    right: 5px;
-    padding: 6px 12px;
-    font-size: 12px;
+@media (prefers-color-scheme: light) {
+  .frp-suggestions {
+    background: rgba(255,255,255,0.95);
+    color: #111;
+    border-color: rgba(0,0,0,0.12);
   }
-  
-  .face-recognition-bulk-button {
-    bottom: 5px;
-    right: 5px;
-    padding: 6px 12px;
-    font-size: 12px;
-  }
-  
-  .face-recognition-add-button {
-    width: 18px;
-    height: 18px;
-    font-size: 10px;
-  }
-  
-  .face-recognition-label {
-    font-size: 10px;
-    max-width: 150px;
-  }
-  
-  .face-recognition-settings {
-    min-width: 280px;
-    padding: 15px;
-  }
-  
-  .face-recognition-message {
-    top: 10px;
-    right: 10px;
-    max-width: 250px;
-    font-size: 12px;
-  }
+  .frp-suggestion span { color: #0b0b0b; }
 }
 
-/* Animationer för bättre användarupplevelse */
-.face-recognition-box {
-  animation: fadeInBox 0.5s ease-in-out;
+@media (max-width: 640px) {
+  .frp-suggestions { max-width: 90vw; min-width: 180px; }
 }
 
-@keyframes fadeInBox {
-  from {
-    opacity: 0;
-    transform: scale(0.8);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+.frp-face-box[data-flip="top"] .frp-suggestions {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 6px;
 }
 
-.face-recognition-message {
-  animation: slideInRight 0.3s ease-out;
+.frp-suggestion.is-low { opacity: 0.6; }
+
+.frp-preview {
+  max-width: 250px;         /* Begränsa bredden på preview */
+  max-height: 90vh;         /* så den aldrig fyller hela skärmen */
+  overflow: hidden;         /* döljer överspill */
 }
 
-@keyframes slideInRight {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.face-recognition-settings {
-  animation: fadeInScale 0.3s ease-out;
-}
-
-@keyframes fadeInScale {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-}
-
-/* Hover-effekter för bounding boxes */
-.face-recognition-box:hover {
-  transform: scale(1.02);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
-}
-
-.face-recognition-box:hover .face-recognition-label {
-  background: rgba(0, 0, 0, 0.9);
+.frp-avatar {
+  width: 100% !important;   /* fyller containern */
+  height: auto !important;  /* behåller proportionerna */
+  object-fit: contain !important;
 }
 
