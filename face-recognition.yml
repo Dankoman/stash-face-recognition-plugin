@@ -25,10 +25,10 @@ ui:
       - http://127.0.0.1:9999
     img-src:
       - 'self'
-      - data:
-      - blob:
-      - https:
-      - http:
+      - 'data:'
+      - 'blob:'
+      - 'https:'
+      - 'http:'
 
 
 settings:
