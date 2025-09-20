@@ -54,6 +54,7 @@
       return candidate.replace(/\/+$/,'');
     }
   }
+
   function buildApiUrl(pathname = '', params){
     const normalized = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
     if(!normalized) return { href:'', error: new Error('API-URL saknas'), raw:'' };
@@ -96,6 +97,7 @@
     info.href = target.toString();
     return info;
   }
+
   function notify(msg, isErr=false){
     const el = document.createElement('div');
     el.textContent = msg;
@@ -556,6 +558,7 @@
       const fd = new FormData();
       fd.append('image', new File([blob], 'frame.jpg', { type:'image/jpeg' }));
       const ctrl = new AbortController();
+
       const timeoutMs = Math.max(3, pluginSettings.api_timeout) * 1000;
       let timeoutHandle = null;
       let apiInfo = null;
@@ -591,6 +594,16 @@
     catch(e){
       console.error(e);
       notify('Fel vid ansiktsigenkänning', true);
+
+      const to = setTimeout(() => ctrl.abort(), Math.max(3, pluginSettings.api_timeout) * 1000);
+      const apiBase = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
+      const url = `${apiBase.replace(/[/]$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`;
+      const resp = await fetch(url, { method:'POST', body:fd, signal:ctrl.signal });
+      clearTimeout(to);
+      if(!resp.ok) throw new Error(`API-fel ${resp.status}`);
+      const data = await resp.json();
+      renderRecognizeOverlay(Array.isArray(data) ? data : []);
+
     }
   }
 
