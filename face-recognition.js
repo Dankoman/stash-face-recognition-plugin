@@ -13,7 +13,7 @@
     auto_add_performers: false,
     create_new_performers: false,
     max_suggestions: 3,
-    image_source: 'both', // local|stashdb|both (skickas till backend)
+    image_source: 'stashdb', // local|stashdb|both (skickas till backend)
     stashdb_endpoint: 'https://stashdb.org/graphql',
     // stashdb_api_key hanteras på backend via env
   };
@@ -95,8 +95,20 @@
         performerCreate(input:$input){ id name }
       }
     `;
-    const d = await stashGraphQL(q, { input: { name } });
-    return d?.performerCreate || null;
+    try{
+      const d = await stashGraphQL(q, { input: { name: (name || '').trim() } });
+      return d?.performerCreate || null;
+    }catch(e){
+      const msg = String(e?.message || e);
+      // Om personen redan finns i DB: hämta den och fortsätt utan fel
+      if(/already exists/i.test(msg)){
+        try{
+          const p = await findPerformerByName(name);
+          if (p) return p;
+        }catch(_){}
+      }
+      throw e;
+    }
   }
 
   async function addPerformerToSceneByName(name){
@@ -282,7 +294,7 @@
 
   // ---------------- Bild-URL: bytes-mode via backend ----------------
   function bytesEndpointFor(name){
-    const u = new URL(pluginSettings.api_url.replace(/\/$/, ''));
+    const u = new URL(pluginSettings.api_url.replace(/[/]$/, ''));
     const qs = new URLSearchParams({
       name,
       source: pluginSettings.image_source,
@@ -467,7 +479,7 @@
       fd.append('image', new File([blob], 'frame.jpg', { type:'image/jpeg' }));
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), Math.max(3, pluginSettings.api_timeout) * 1000);
-      const url = `${pluginSettings.api_url.replace(/\/$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`;
+      const url = `${pluginSettings.api_url.replace(/[/]$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`;
       const resp = await fetch(url, { method:'POST', body:fd, signal:ctrl.signal });
       clearTimeout(to);
       if(!resp.ok) throw new Error(`API-fel ${resp.status}`);
