@@ -3,10 +3,10 @@
 
 (function(){
   const LS_KEY = 'face_recognition_plugin_settings';
-  const imageCache = new Map(); // name -> url|null
+  const imageCache = new Map(); // name -> { href, objectUrl } | null
 
   let pluginSettings = {
-    api_url: 'http://127.0.0.1:5000',
+    api_url: 'http://192.168.0.140:5000',
     api_timeout: 30,
     show_confidence: true,
     min_confidence: 30,
@@ -27,6 +27,39 @@
   }
   function saveSettings(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{}
+  }
+
+  function getCachedImageHref(name){
+    if(!imageCache.has(name)) return undefined;
+    const cached = imageCache.get(name);
+    if(cached === null) return null;
+    return cached?.href || null;
+  }
+
+  function storeImageCache(name, entry){
+    const prev = imageCache.get(name);
+    if(prev && prev.objectUrl){
+      const prevHref = typeof prev.href === 'string' ? prev.href : null;
+      if(prevHref && prevHref.startsWith('blob:') && (!entry || entry.href !== prevHref)){
+        try{ URL.revokeObjectURL(prevHref); }catch(_){}
+      }
+    }
+    imageCache.set(name, entry ?? null);
+  }
+
+  if(!window.__frpPreviewCacheCleanup){
+    window.__frpPreviewCacheCleanup = true;
+    window.addEventListener('beforeunload', () => {
+      imageCache.forEach(entry => {
+        if(entry && entry.objectUrl){
+          const href = typeof entry.href === 'string' ? entry.href : null;
+          if(href && href.startsWith('blob:')){
+            try{ URL.revokeObjectURL(href); }catch(_){}
+          }
+        }
+      });
+      imageCache.clear();
+    });
   }
 
   function normalizeApiBaseUrl(value){
@@ -378,22 +411,50 @@
     return info.href;
   }
 
-  async function resolveImageURL(name){
-    if (imageCache.has(name)) return imageCache.get(name);
+  async function resolveImageURL(name, signal){
+    const cached = getCachedImageHref(name);
+    if(cached !== undefined) return cached;
+
+    let endpoint;
     try{
-      const url = bytesEndpointFor(name);
-      imageCache.set(name, url);
-      return url;
+      endpoint = bytesEndpointFor(name);
     }catch(err){
       console.error('Kunde inte bygga bild-URL:', err);
-      imageCache.set(name, null);
+      storeImageCache(name, null);
+      return null;
+    }
+
+    try{
+      const resp = await fetch(endpoint, { signal });
+      if(resp.status === 204){
+        storeImageCache(name, null);
+        return null;
+      }
+      if(!resp.ok){
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const blob = await resp.blob();
+      if(!blob || !blob.size){
+        storeImageCache(name, null);
+        return null;
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      storeImageCache(name, { href: objectUrl, objectUrl: true });
+      return objectUrl;
+    }catch(err){
+      if(err?.name === 'AbortError'){
+        throw err;
+      }
+      console.error('Kunde inte hämta preview-bild:', err);
       return null;
     }
   }
 
   // ---------------- Hover-preview per rad ----------------
   function attachHoverPreview(rowEl, name){
-    let tipRef = null, enterTimer = null;
+    let tipRef = null;
+    let enterTimer = null;
+    let pendingCtrl = null;
 
     function placeTipNear(el, tip){
       const r  = el.getBoundingClientRect();
@@ -411,28 +472,74 @@
       tip.style.top  = y + 'px';
     }
 
+    function removeTip(){
+      if (tipRef){
+        tipRef.remove();
+        tipRef = null;
+      }
+    }
+
     rowEl.addEventListener('mouseenter', ()=>{
+      if(enterTimer) clearTimeout(enterTimer);
       enterTimer = setTimeout(async ()=>{
-        const url = await resolveImageURL(name);
+        if (tipRef) return;
+        const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+        pendingCtrl = ctrl;
+        let url;
+        try{
+          url = await resolveImageURL(name, ctrl ? ctrl.signal : undefined);
+        }catch(err){
+          if(err?.name !== 'AbortError'){
+            console.error('Preview-fetch misslyckades:', err);
+          }
+          if(pendingCtrl === ctrl) pendingCtrl = null;
+          return;
+        }
+        if(pendingCtrl !== ctrl){
+          return;
+        }
+        pendingCtrl = null;
         if (!url || tipRef) return;
+
         const { tip, img } = makePreviewTooltip();
+        tip.dataset.frPreview = name;
         tip.style.maxWidth = '150px';
         tip.style.maxHeight = '90vh';
         img.style.maxWidth = '150px';
         img.style.width = '100%';
         img.style.height = 'auto';
         img.style.objectFit = 'contain';
-
-        img.onload = () => { document.body.appendChild(tip); placeTipNear(rowEl, tip); };
-        img.src = url;
         tipRef = tip;
+
+        img.onload = () => {
+          if(tipRef !== tip) return;
+          if(!tip.parentNode) document.body.appendChild(tip);
+          placeTipNear(rowEl, tip);
+        };
+        img.onerror = () => {
+          if(url && typeof url === 'string' && url.startsWith('blob:')){
+            try{ URL.revokeObjectURL(url); }catch(_){}
+            if(getCachedImageHref(name) === url){
+              imageCache.delete(name);
+            }
+          }
+          if(tipRef === tip){
+            tipRef = null;
+          }
+          tip.remove();
+        };
+        img.src = url;
       }, 150);
     });
 
     rowEl.addEventListener('mousemove', ()=>{ if (tipRef) placeTipNear(rowEl, tipRef); });
     rowEl.addEventListener('mouseleave', ()=>{
-      clearTimeout(enterTimer); enterTimer = null;
-      if (tipRef){ tipRef.remove(); tipRef = null; }
+      if(enterTimer){ clearTimeout(enterTimer); enterTimer = null; }
+      if(pendingCtrl){
+        try{ pendingCtrl.abort(); }catch(_){}
+        pendingCtrl = null;
+      }
+      removeTip();
     });
   }
 
