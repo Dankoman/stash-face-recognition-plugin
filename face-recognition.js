@@ -22,10 +22,37 @@
     try{
       const raw = localStorage.getItem(LS_KEY);
       if(raw) pluginSettings = { ...pluginSettings, ...JSON.parse(raw) };
+      pluginSettings.api_url = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
     }catch{}
   }
   function saveSettings(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{}
+  }
+
+  function normalizeApiBaseUrl(value){
+    const trimmed = (value || '').toString().trim();
+    if(!trimmed) return '';
+
+    let candidate = trimmed
+      .replace(/\\/g, '/')
+      .replace(/\s+/g, '')
+      .replace(/\.+$/, '');
+
+    if(/^([a-z][a-z0-9+.-]*:\/)([^/])/i.test(candidate)){
+      candidate = candidate.replace(/^([a-z][a-z0-9+.-]*:\/)([^/])/i, '$1/$2');
+    }
+
+    if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)){
+      candidate = `http://${candidate.replace(/^\/+/,'')}`;
+    }
+
+    try{
+      const url = new URL(candidate);
+      const cleanPath = url.pathname.replace(/\/+$/,'');
+      return `${url.origin}${cleanPath === '/' ? '' : cleanPath}`;
+    }catch(_){
+      return candidate.replace(/\/+$/,'');
+    }
   }
   function notify(msg, isErr=false){
     const el = document.createElement('div');
@@ -205,7 +232,8 @@
   }
   function saveSettingsFromPanel(root){
     try{
-      pluginSettings.api_url = root.querySelector('#fr-api-url').value || pluginSettings.api_url;
+      const prevApiUrl = pluginSettings.api_url;
+      pluginSettings.api_url = normalizeApiBaseUrl(root.querySelector('#fr-api-url').value) || prevApiUrl;
       pluginSettings.api_timeout = parseInt(root.querySelector('#fr-api-timeout').value) || pluginSettings.api_timeout;
       pluginSettings.show_confidence = !!root.querySelector('#fr-show-confidence').checked;
       pluginSettings.min_confidence = Math.min(100, Math.max(0, parseInt(root.querySelector('#fr-min-confidence').value) || 0));
@@ -479,7 +507,8 @@
       fd.append('image', new File([blob], 'frame.jpg', { type:'image/jpeg' }));
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), Math.max(3, pluginSettings.api_timeout) * 1000);
-      const url = `${pluginSettings.api_url.replace(/[/]$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`;
+      const apiBase = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
+      const url = `${apiBase.replace(/[/]$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`;
       const resp = await fetch(url, { method:'POST', body:fd, signal:ctrl.signal });
       clearTimeout(to);
       if(!resp.ok) throw new Error(`API-fel ${resp.status}`);
