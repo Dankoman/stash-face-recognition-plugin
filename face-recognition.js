@@ -22,10 +22,79 @@
     try{
       const raw = localStorage.getItem(LS_KEY);
       if(raw) pluginSettings = { ...pluginSettings, ...JSON.parse(raw) };
+      pluginSettings.api_url = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
     }catch{}
   }
   function saveSettings(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{}
+  }
+
+  function normalizeApiBaseUrl(value){
+    const trimmed = (value || '').toString().trim();
+    if(!trimmed) return '';
+
+    let candidate = trimmed
+      .replace(/\\/g, '/')
+      .replace(/\s+/g, '')
+      .replace(/\.+$/, '');
+
+    if(/^([a-z][a-z0-9+.-]*:\/)([^/])/i.test(candidate)){
+      candidate = candidate.replace(/^([a-z][a-z0-9+.-]*:\/)([^/])/i, '$1/$2');
+    }
+
+    if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)){
+      candidate = `http://${candidate.replace(/^\/+/,'')}`;
+    }
+
+    try{
+      const url = new URL(candidate);
+      const cleanPath = url.pathname.replace(/\/+$/,'');
+      return `${url.origin}${cleanPath === '/' ? '' : cleanPath}`;
+    }catch(_){
+      return candidate.replace(/\/+$/,'');
+    }
+  }
+  function buildApiUrl(pathname = '', params){
+    const normalized = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
+    if(!normalized) return { href:'', error: new Error('API-URL saknas'), raw:'' };
+
+    let original;
+    try{
+      original = new URL(normalized);
+    }catch(err){
+      return { href:'', error: err, raw: normalized };
+    }
+
+    const info = {
+      href: '',
+      raw: normalized,
+      error: null,
+      upgraded: false,
+      originalProtocol: original.protocol,
+      attemptedProtocol: original.protocol
+    };
+
+    const target = new URL(original.toString());
+    if(window.location.protocol === 'https:' && target.protocol === 'http:'){
+      target.protocol = 'https:';
+      info.upgraded = true;
+      info.attemptedProtocol = 'https:';
+    }
+
+    const basePath = target.pathname.replace(/\/+$/,'');
+    const append = pathname ? `${pathname.startsWith('/') ? '' : '/'}${pathname}` : '';
+    target.pathname = `${basePath}${append}` || '/';
+    target.search = '';
+
+    if(params && typeof params === 'object'){
+      Object.entries(params).forEach(([key, value]) => {
+        if(value === undefined || value === null) return;
+        target.searchParams.set(key, String(value));
+      });
+    }
+
+    info.href = target.toString();
+    return info;
   }
   function notify(msg, isErr=false){
     const el = document.createElement('div');
@@ -205,7 +274,8 @@
   }
   function saveSettingsFromPanel(root){
     try{
-      pluginSettings.api_url = root.querySelector('#fr-api-url').value || pluginSettings.api_url;
+      const prevApiUrl = pluginSettings.api_url;
+      pluginSettings.api_url = normalizeApiBaseUrl(root.querySelector('#fr-api-url').value) || prevApiUrl;
       pluginSettings.api_timeout = parseInt(root.querySelector('#fr-api-timeout').value) || pluginSettings.api_timeout;
       pluginSettings.show_confidence = !!root.querySelector('#fr-show-confidence').checked;
       pluginSettings.min_confidence = Math.min(100, Math.max(0, parseInt(root.querySelector('#fr-min-confidence').value) || 0));
@@ -294,21 +364,29 @@
 
   // ---------------- Bild-URL: bytes-mode via backend ----------------
   function bytesEndpointFor(name){
-    const u = new URL(pluginSettings.api_url.replace(/[/]$/, ''));
-    const qs = new URLSearchParams({
+    const info = buildApiUrl('resolve_image', {
       name,
       source: pluginSettings.image_source,
       stashdb_endpoint: pluginSettings.stashdb_endpoint,
       format: 'bytes'
     });
-    return `${u.origin}${u.pathname}/resolve_image?${qs.toString()}`;
+    if(info.error){
+      throw info.error;
+    }
+    return info.href;
   }
 
   async function resolveImageURL(name){
     if (imageCache.has(name)) return imageCache.get(name);
-    const url = bytesEndpointFor(name);
-    imageCache.set(name, url);
-    return url;
+    try{
+      const url = bytesEndpointFor(name);
+      imageCache.set(name, url);
+      return url;
+    }catch(err){
+      console.error('Kunde inte bygga bild-URL:', err);
+      imageCache.set(name, null);
+      return null;
+    }
   }
 
   // ---------------- Hover-preview per rad ----------------
@@ -478,15 +556,42 @@
       const fd = new FormData();
       fd.append('image', new File([blob], 'frame.jpg', { type:'image/jpeg' }));
       const ctrl = new AbortController();
-      const to = setTimeout(() => ctrl.abort(), Math.max(3, pluginSettings.api_timeout) * 1000);
-      const url = `${pluginSettings.api_url.replace(/[/]$/,'')}/recognize?top_k=${pluginSettings.max_suggestions||3}`;
-      const resp = await fetch(url, { method:'POST', body:fd, signal:ctrl.signal });
-      clearTimeout(to);
-      if(!resp.ok) throw new Error(`API-fel ${resp.status}`);
-      const data = await resp.json();
-      renderRecognizeOverlay(Array.isArray(data) ? data : []);
+      const timeoutMs = Math.max(3, pluginSettings.api_timeout) * 1000;
+      let timeoutHandle = null;
+      let apiInfo = null;
+      try{
+        timeoutHandle = setTimeout(() => ctrl.abort(), timeoutMs);
+        apiInfo = buildApiUrl('recognize', { top_k: pluginSettings.max_suggestions || 3 });
+        if(apiInfo?.error){
+          console.error('Ogiltig API-URL:', apiInfo.error);
+          notify('Ogiltig API-URL, uppdatera inställningarna', true);
+          return;
+        }
+        if(apiInfo?.upgraded){
+          console.warn(`face-recognition: uppgraderar API-URL till HTTPS (${apiInfo.raw})`);
+        }
+        const resp = await fetch(apiInfo.href, { method:'POST', body:fd, signal:ctrl.signal });
+        if(!resp.ok) throw new Error(`API-fel ${resp.status}`);
+        const data = await resp.json();
+        renderRecognizeOverlay(Array.isArray(data) ? data : []);
+      }catch(err){
+        if(err.name === 'AbortError'){
+          notify('API-timeout uppnådd', true);
+        }else if(apiInfo?.upgraded && window.location.protocol === 'https:'){
+          console.error(err);
+          notify('Kunde inte kontakta face_extractor via HTTPS. Aktivera HTTPS på API:t eller öppna Stash via HTTP.', true);
+        }else{
+          console.error(err);
+          notify('Fel vid ansiktsigenkänning', true);
+        }
+      }finally{
+        if(timeoutHandle) clearTimeout(timeoutHandle);
+      }
     }
-    catch(e){ console.error(e); notify('Fel vid ansiktsigenkänning', true); }
+    catch(e){
+      console.error(e);
+      notify('Fel vid ansiktsigenkänning', true);
+    }
   }
 
   function init(){
