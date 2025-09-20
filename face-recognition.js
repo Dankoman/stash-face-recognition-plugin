@@ -93,7 +93,9 @@
       }
     `;
     const d = await stashGraphQL(q, { id: sceneId });
-    const arr = (d?.findScene?.performers || []).map(p => parseInt(p.id,10)).filter(n => Number.isFinite(n));
+    const arr = (d?.findScene?.performers || [])
+      .map(p => (p?.id ?? '').toString().trim())
+      .filter(id => id.length > 0);
     return Array.from(new Set(arr));
   }
 
@@ -152,7 +154,11 @@
     }
 
     const existing = await getScenePerformerIds(sceneId);
-    const pid = parseInt(perf.id, 10);
+    const pid = (perf.id ?? '').toString();
+    if(!pid){
+      notify(`Ogiltigt performer-ID för "${perf.name||name}"`, true);
+      return;
+    }
     if(existing.includes(pid)){
       notify(`"${perf.name}" finns redan i scenen`);
       return;
@@ -166,6 +172,32 @@
     `;
     await stashGraphQL(q, { input: { id: sceneId, performer_ids: allIds } });
     notify(`La till "${perf.name}" i scenen`);
+    return true;
+  }
+
+  async function autoAddPerformersFromResults(items){
+    if(!pluginSettings.auto_add_performers) return;
+
+    const minPct = Math.max(0, Math.min(100, pluginSettings.min_confidence));
+    const picked = new Set();
+
+    items.forEach(face => {
+      const best = (face?.candidates || [])
+        .filter(c => typeof c?.name === 'string' && (c?.score ?? 0) * 100 >= minPct)
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
+      if(best){
+        picked.add(best.name);
+      }
+    });
+
+    for(const name of picked){
+      try{
+        await addPerformerToSceneByName(name);
+      }catch(err){
+        console.error('Auto-add misslyckades för', name, err);
+        notify(`Misslyckades lägga till "${name}": ${err?.message||err}`, true);
+      }
+    }
   }
 
   // ---------------- Settings panel (högerklick) ----------------
@@ -513,7 +545,9 @@
       clearTimeout(to);
       if(!resp.ok) throw new Error(`API-fel ${resp.status}`);
       const data = await resp.json();
-      renderRecognizeOverlay(Array.isArray(data) ? data : []);
+      const faces = Array.isArray(data) ? data : [];
+      renderRecognizeOverlay(faces);
+      await autoAddPerformersFromResults(faces);
     }
     catch(e){ console.error(e); notify('Fel vid ansiktsigenkänning', true); }
   }
