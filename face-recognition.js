@@ -29,6 +29,17 @@
     try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{}
   }
 
+  function arrayBufferToBase64(buffer){
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for(let i=0;i<bytes.length;i+=chunkSize){
+      const slice = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, slice);
+    }
+    return btoa(binary);
+  }
+
   function getCachedImageHref(name){
     if(!imageCache.has(name)) return undefined;
     const cached = imageCache.get(name);
@@ -438,9 +449,12 @@
         storeImageCache(name, null);
         return null;
       }
-      const objectUrl = URL.createObjectURL(blob);
-      storeImageCache(name, { href: objectUrl, objectUrl: true });
-      return objectUrl;
+      const buffer = await blob.arrayBuffer();
+      const base64 = arrayBufferToBase64(buffer);
+      const contentType = resp.headers.get('Content-Type') || 'image/jpeg';
+      const dataUrl = `data:${contentType};base64,${base64}`;
+      storeImageCache(name, { href: dataUrl, objectUrl: false });
+      return dataUrl;
     }catch(err){
       if(err?.name === 'AbortError'){
         throw err;
@@ -517,11 +531,8 @@
           placeTipNear(rowEl, tip);
         };
         img.onerror = () => {
-          if(url && typeof url === 'string' && url.startsWith('blob:')){
-            try{ URL.revokeObjectURL(url); }catch(_){}
-            if(getCachedImageHref(name) === url){
-              imageCache.delete(name);
-            }
+          if(getCachedImageHref(name) === url){
+            imageCache.delete(name);
           }
           if(tipRef === tip){
             tipRef = null;
