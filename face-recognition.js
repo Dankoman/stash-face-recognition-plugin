@@ -73,6 +73,194 @@
     });
   }
 
+  function normalizeCandidateName(value){
+    if(value === undefined || value === null) return '';
+    const text = String(value).trim();
+    if(!text) return '';
+    const unquoted = text.replace(/^"(.*)"$/, '$1');
+    return unquoted.replace(/\s+/g, ' ').trim();
+  }
+
+  function generateAliasCandidates(name){
+    const normalized = normalizeCandidateName(name);
+    if(!normalized) return [];
+    const variants = new Set();
+    const push = val => {
+      const norm = normalizeCandidateName(val);
+      if(norm) variants.add(norm);
+    };
+    push(normalized);
+    const withoutParens = normalized.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+    if(withoutParens) push(withoutParens);
+    normalized.split(/\s*(?:\/|\||,|;|aka)\s*/i).forEach(push);
+    const roman = normalized.replace(/\s+[IVXLCDM]+$/i, '').trim();
+    if(roman) push(roman);
+    return Array.from(variants).filter(Boolean);
+  }
+
+  function uniqueStrings(list){
+    const seen = new Set();
+    const out = [];
+    for(const val of list || []){
+      if(!val) continue;
+      if(seen.has(val)) continue;
+      seen.add(val);
+      out.push(val);
+    }
+    return out;
+  }
+
+  function parseIntegerLike(value){
+    if(value === undefined || value === null) return undefined;
+    if(typeof value === 'number' && Number.isFinite(value)) return Math.round(value);
+    const text = String(value).trim();
+    if(!text) return undefined;
+    const digits = text.replace(/[^0-9.]/g, '');
+    if(!digits) return undefined;
+    const num = parseFloat(digits);
+    if(!Number.isFinite(num)) return undefined;
+    return Math.round(num);
+  }
+
+  const ENUM_OVERRIDES = {
+    gender: {
+      TRANSGENDER_FEMALE: 'TRANS_FEMALE',
+      TRANSGENDER_MALE: 'TRANS_MALE',
+      TRANSGENDER: 'TRANS_FEMALE',
+      TRANSSEXUAL: 'TRANS_FEMALE',
+      'TRANS FEMALE': 'TRANS_FEMALE',
+      'TRANS MALE': 'TRANS_MALE',
+      'NON BINARY': 'NON_BINARY',
+      'NON-BINARY': 'NON_BINARY',
+      GENDERQUEER: 'NON_BINARY',
+    },
+    ethnicity: {
+      CAUCASIAN: 'WHITE',
+      EUROPEAN: 'WHITE',
+      AFRICAN_AMERICAN: 'BLACK',
+      AFRICAN: 'BLACK',
+      LATINA: 'HISPANIC',
+      LATINO: 'HISPANIC',
+      HISPANIC: 'HISPANIC',
+      MIDDLE_EASTERN: 'MIDDLE_EASTERN',
+      MIXED: 'MIXED',
+      MULTI: 'MIXED',
+      ASIAN: 'ASIAN',
+      INDIAN: 'INDIAN',
+    },
+    hair_color: {
+      BRUNETTE: 'BROWN',
+      DARK_BROWN: 'BROWN',
+      LIGHT_BROWN: 'BROWN',
+      DARK_BLONDE: 'BLONDE',
+      DIRTY_BLONDE: 'BLONDE',
+      AUBURN: 'AUBURN',
+      REDHEAD: 'RED',
+      GREY: 'GREY',
+      GRAY: 'GREY',
+    },
+    eye_color: {
+      HONEY: 'AMBER',
+      AMBER: 'AMBER',
+      GREY: 'GREY',
+      GRAY: 'GREY',
+      HAZEL: 'HAZEL',
+      GREEN: 'GREEN',
+      BLUE: 'BLUE',
+      BROWN: 'BROWN',
+    },
+  };
+
+  let performerSchemaCaps = null;
+
+  async function ensurePerformerSchemaCaps(){
+    if(performerSchemaCaps) return performerSchemaCaps;
+    const query = `
+      query PerformerInputCaps {
+        performerInput: __type(name:"PerformerCreateInput") {
+          inputFields { name type { kind name ofType { kind name ofType { kind name } } } }
+        }
+        genderEnum: __type(name:"GenderEnum") { enumValues { name } }
+        ethnicityEnum: __type(name:"EthnicityEnum") { enumValues { name } }
+        hairEnum: __type(name:"HairColorEnum") { enumValues { name } }
+        eyeEnum: __type(name:"EyeColorEnum") { enumValues { name } }
+      }
+    `;
+
+    const unwrapTypeName = node => {
+      if(!node) return undefined;
+      if(node.name) return node.name;
+      return unwrapTypeName(node.ofType);
+    };
+
+    try{
+      const data = await stashGraphQL(query, {});
+      const rawFields = Array.isArray(data?.performerInput?.inputFields) ? data.performerInput.inputFields : [];
+      const inputFields = new Map();
+      rawFields.forEach(field => {
+        if(!field?.name) return;
+        const typeName = unwrapTypeName(field.type) || null;
+        inputFields.set(field.name, typeName);
+      });
+      const enums = {
+        gender: new Set((data?.genderEnum?.enumValues || []).map(e => e?.name).filter(Boolean)),
+        ethnicity: new Set((data?.ethnicityEnum?.enumValues || []).map(e => e?.name).filter(Boolean)),
+        hair_color: new Set((data?.hairEnum?.enumValues || []).map(e => e?.name).filter(Boolean)),
+        eye_color: new Set((data?.eyeEnum?.enumValues || []).map(e => e?.name).filter(Boolean)),
+      };
+      performerSchemaCaps = { inputFields, enums };
+      if(!performerSchemaCaps.logged){
+        console.debug('PerformerCreateInput fields', Array.from(inputFields.entries()));
+        performerSchemaCaps.logged = true;
+      }
+    }catch(err){
+      console.error('Kunde inte introspektera PerformerCreateInput', err);
+      performerSchemaCaps = { inputFields: new Map(), enums: { gender: new Set(), ethnicity: new Set(), hair_color: new Set(), eye_color: new Set() } };
+    }
+    return performerSchemaCaps;
+  }
+
+  function mapEnumValue(rawValue, enumName, caps){
+    if(!rawValue) return undefined;
+    const enums = caps?.enums?.[enumName];
+    if(!enums || !enums.size) return undefined;
+    const normalized = String(rawValue).trim();
+    if(!normalized) return undefined;
+    const candidate = normalized.replace(/[^\w]+/g, '_').replace(/_+/g, '_').toUpperCase();
+    if(enums.has(candidate)) return candidate;
+    const overrides = ENUM_OVERRIDES[enumName] || {};
+    const override = overrides[candidate];
+    if(Array.isArray(override)){
+      for(const val of override){
+        if(enums.has(val)) return val;
+      }
+    }else if(typeof override === 'string' && enums.has(override)){
+      return override;
+    }
+    return undefined;
+  }
+
+  function canUseInputField(caps, field){
+    if(!caps || !caps.inputFields) return false;
+    const inputFields = caps.inputFields;
+    if(typeof inputFields.has === 'function') return inputFields.has(field);
+    if(typeof inputFields.get === 'function') return inputFields.has(field);
+    if(Array.isArray(inputFields)) return inputFields.includes(field);
+    return false;
+  }
+
+  function getInputFieldType(caps, field){
+    if(!caps || !caps.inputFields) return undefined;
+    const inputFields = caps.inputFields;
+    if(typeof inputFields.get === 'function') return inputFields.get(field);
+    return undefined;
+  }
+
+  function isInputObjectType(typeName){
+    if(typeof typeName !== 'string') return false;
+    return /INPUT$/i.test(typeName.trim());
+  }
+
   function normalizeApiBaseUrl(value){
     const trimmed = (value || '').toString().trim();
     if(!trimmed) return '';
@@ -134,13 +322,219 @@
     if(params && typeof params === 'object'){
       Object.entries(params).forEach(([key, value]) => {
         if(value === undefined || value === null) return;
-        target.searchParams.set(key, String(value));
+        if(Array.isArray(value)){
+          value.forEach(v => {
+            if(v === undefined || v === null) return;
+            target.searchParams.append(key, String(v));
+          });
+        }else{
+          target.searchParams.set(key, String(value));
+        }
       });
     }
 
     info.href = target.toString();
     return info;
   }
+
+  async function fetchStashdbMetadata(name, aliasCandidates){
+    const normalized = normalizeCandidateName(name);
+    if(!normalized) return null;
+    const params = {
+      name: normalized,
+      stashdb_endpoint: pluginSettings.stashdb_endpoint || 'https://stashdb.org/graphql'
+    };
+    if(Array.isArray(aliasCandidates) && aliasCandidates.length){
+      const extras = uniqueStrings(aliasCandidates.map(normalizeCandidateName)).filter(val => val && val !== normalized);
+      if(extras.length) params.alias = extras;
+    }
+    const apiInfo = buildApiUrl('stashdb/performer', params);
+    if(apiInfo?.error){
+      console.error('Ogiltig API-URL för stashdb/performer:', apiInfo.error);
+      return null;
+    }
+    const ctrl = new AbortController();
+    const timeoutMs = Math.max(3, pluginSettings.api_timeout || 0) * 1000;
+    const handle = setTimeout(() => ctrl.abort(), timeoutMs);
+    try{
+      const resp = await fetch(apiInfo.href, { method: 'GET', signal: ctrl.signal });
+      if(resp.status === 404) return null;
+      if(!resp.ok){
+        console.warn('stashdb/performer gav fel', resp.status);
+        return null;
+      }
+      const data = await resp.json();
+      if(!data || !data.performer) return null;
+      return data;
+    }catch(err){
+      if(err.name !== 'AbortError'){
+        console.error('Fel vid hämtning av StashDB-metadata:', err);
+      }
+      return null;
+    }finally{
+      clearTimeout(handle);
+    }
+  }
+
+  async function buildPerformerCreateInput(normalizedName, aliasCandidates){
+    const caps = await ensurePerformerSchemaCaps();
+    const canUse = field => canUseInputField(caps, field);
+    const metadata = await fetchStashdbMetadata(normalizedName, aliasCandidates);
+    const input = {};
+    if(!metadata){
+      return { input, metadata: null, caps };
+    }
+
+    const performer = metadata.performer || {};
+    if(canUse('disambiguation') && performer.disambiguation){
+      input.disambiguation = performer.disambiguation;
+    }
+
+    const aliasesFromMetadata = Array.isArray(performer.aliases) ? performer.aliases.map(normalizeCandidateName) : [];
+    const aliasesFromArgs = Array.isArray(aliasCandidates) ? aliasCandidates.map(normalizeCandidateName) : [];
+    const aliasList = uniqueStrings([...aliasesFromMetadata, ...aliasesFromArgs]).filter(alias => alias && alias !== normalizedName);
+    const aliasFieldTypeRaw = getInputFieldType(caps, 'aliases');
+    const aliasListFieldTypeRaw = getInputFieldType(caps, 'alias_list');
+    const aliasWantsObject = isInputObjectType(aliasFieldTypeRaw);
+    const aliasListWantsObject = isInputObjectType(aliasListFieldTypeRaw);
+    if(canUse('aliases') && aliasList.length){
+      input.aliases = aliasWantsObject ? aliasList : aliasList[0];
+    } else if(canUse('alias_list') && aliasList.length){
+      input.alias_list = aliasListWantsObject ? aliasList : aliasList[0];
+    }
+
+    if(canUse('gender')){
+      const genderValue = mapEnumValue(performer.gender, 'gender', caps);
+      if(genderValue) input.gender = genderValue;
+    }
+    if(canUse('ethnicity')){
+      const ethnicityValue = mapEnumValue(performer.ethnicity, 'ethnicity', caps);
+      if(ethnicityValue) input.ethnicity = ethnicityValue;
+    }
+    if(canUse('country') && performer.country){
+      input.country = performer.country;
+    } else if(canUse('country_code') && performer.country){
+      input.country_code = performer.country;
+    }
+    if(canUse('birthdate') && performer.birthdate){
+      input.birthdate = performer.birthdate;
+    }
+    if(canUse('death_date') && (performer.death_date || performer.deathdate)){
+      input.death_date = performer.death_date || performer.deathdate;
+    }
+    if(canUse('hair_color')){
+      const hairValue = mapEnumValue(performer.hair_color, 'hair_color', caps);
+      if(hairValue) input.hair_color = hairValue;
+    }
+    if(canUse('eye_color')){
+      const eyeValue = mapEnumValue(performer.eye_color, 'eye_color', caps);
+      if(eyeValue) input.eye_color = eyeValue;
+    }
+    if(canUse('measurements') && performer.measurements){
+      input.measurements = performer.measurements;
+    }
+
+    const heightSource = performer.height_cm ?? performer.height;
+    if(canUse('height')){
+      const h = parseIntegerLike(heightSource);
+      if(typeof h === 'number') input.height = h;
+    }else if(canUse('height_cm')){
+      const h = parseIntegerLike(heightSource);
+      if(typeof h === 'number') input.height_cm = h;
+    }
+    if(canUse('weight')){
+      const w = parseIntegerLike(performer.weight);
+      if(typeof w === 'number') input.weight = w;
+    }
+
+    if(canUse('urls') || canUse('url')){
+      const baseUrls = Array.isArray(performer.urls) ? performer.urls : [];
+      const rawUrlEntries = [];
+      baseUrls.forEach(entry => {
+        if(!entry) return;
+        if(typeof entry === 'string'){
+          rawUrlEntries.push(entry);
+        }else if(typeof entry === 'object'){
+          const candidate = entry.url || entry.href || '';
+          if(candidate) rawUrlEntries.push(candidate);
+        }
+      });
+      if(metadata.image_url){
+        rawUrlEntries.push(metadata.image_url);
+      }
+      const social = performer.social || {};
+      [['instagram','https://instagram.com/'], ['twitter','https://twitter.com/'], ['tiktok','https://www.tiktok.com/@']].forEach(([key, prefix]) => {
+        const value = social?.[key];
+        if(typeof value !== 'string') return;
+        let href = value.trim();
+        if(!href) return;
+        if(!/^https?:/i.test(href)){
+          href = `${prefix}${href.replace(/^@+/, '')}`;
+        }
+        rawUrlEntries.push(href);
+      });
+      const seen = new Set();
+      const urls = [];
+      rawUrlEntries.forEach(entry => {
+        if(!entry) return;
+        let clean = String(entry).trim();
+        if(!clean) return;
+        if(!/^https?:/i.test(clean)){
+          clean = `https://${clean.replace(/^\/+/, '')}`;
+        }
+        if(seen.has(clean)) return;
+        seen.add(clean);
+        urls.push(clean);
+      });
+      if(urls.length){
+        const urlsTypeRaw = getInputFieldType(caps, 'urls');
+        const urlTypeRaw = getInputFieldType(caps, 'url');
+        const wantsObjectList = isInputObjectType(urlsTypeRaw);
+        if(canUse('urls')){
+          input.urls = wantsObjectList ? urls.map(url => ({ url })) : urls;
+        } else if(canUse('url')) {
+          const singleIsObject = isInputObjectType(urlTypeRaw);
+          input.url = singleIsObject ? { url: urls[0] } : urls[0];
+        }
+      }
+    }
+
+    if(canUse('stash_ids') || canUse('stash_id')){
+      const fallbackEndpoint = metadata.source_endpoint || pluginSettings.stashdb_endpoint || 'https://stashdb.org/graphql';
+      const rawStashIds = Array.isArray(performer.stash_ids) ? performer.stash_ids : [];
+      const stashIds = [];
+      let encounteredSite = false;
+      rawStashIds.forEach(entry => {
+        if(!entry) return;
+        const stashId = entry.stash_id || entry.id;
+        if(!stashId) return;
+        const endpoint = entry.endpoint || entry.url || fallbackEndpoint;
+        const key = `${endpoint}:${stashId}`;
+        stashIds.push({ stash_id: String(stashId), endpoint });
+      });
+      if(!stashIds.length && performer.id){
+        stashIds.push({ stash_id: String(performer.id), endpoint: fallbackEndpoint });
+      }
+      if(stashIds.length){
+        if(canUse('stash_ids')){
+          const seen = new Set();
+          const uniq = stashIds.filter(item => {
+            const key = `${item.endpoint}:${item.stash_id}`;
+            if(seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          input.stash_ids = uniq;
+        }else if(canUse('stash_id')){
+          input.stash_id = stashIds[0]?.stash_id;
+          if(canUse('stash_endpoint')) input.stash_endpoint = stashIds[0]?.endpoint;
+        }
+      }
+    }
+
+    return { input, metadata, caps };
+  }
+
 
   function notify(msg, isErr=false){
     const el = document.createElement('div');
@@ -155,17 +549,46 @@
   }
 
   // ---------------- Stash GraphQL helpers ----------------
-  async function stashGraphQL(query, variables){
+  async function stashGraphQL(query, variables, init){
     const resp = await fetch('/graphql', {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ query, variables })
+      body: JSON.stringify({ query, variables }),
+      ...(init || {})
     });
-    if(!resp.ok) throw new Error(`GraphQL HTTP ${resp.status}`);
-    const data = await resp.json();
-    if(data.errors) throw new Error(data.errors.map(e=>e.message).join('; '));
-    return data.data;
+
+    const text = await resp.text();
+    let payload = null;
+    if(text){
+      try{ payload = JSON.parse(text); }catch(_){ payload = null; }
+    }
+
+    if(!resp.ok){
+      let message = `GraphQL HTTP ${resp.status}`;
+      const errors = payload?.errors;
+      if(Array.isArray(errors) && errors.length){
+        const msg = errors.map(e => e?.message).filter(Boolean).join('; ');
+        if(msg) message += `: ${msg}`;
+      }else if(text){
+        const snippet = text.slice(0, 200).trim();
+        if(snippet) message += `: ${snippet}`;
+      }
+      const error = new Error(message);
+      error.status = resp.status;
+      error.payload = payload ?? text;
+      throw error;
+    }
+
+    if(payload?.errors){
+      const msg = payload.errors.map(e => e?.message).filter(Boolean).join('; ');
+      const error = new Error(msg || 'GraphQL error');
+      error.status = resp.status;
+      error.payload = payload;
+      throw error;
+    }
+
+    return payload?.data ?? null;
   }
 
   function getCurrentSceneId(){
@@ -186,6 +609,8 @@
   }
 
   async function findPerformerByName(name){
+    const normalized = normalizeCandidateName(name);
+    if(!normalized) return null;
     const q = `
       query FindPerformer($name:String!){
         findPerformers(
@@ -193,48 +618,142 @@
             name:{ value:$name, modifier:EQUALS },
             aliases:{ value:$name, modifier:EQUALS }
           }}
-          filter:{ per_page: 1 }
+          filter:{ per_page: 25 }
         ){
           performers{ id name }
         }
       }
     `;
-    const d = await stashGraphQL(q, { name });
-    return d?.findPerformers?.performers?.[0] || null;
+    const variants = generateAliasCandidates(normalized);
+    variants.push(normalized);
+    for(const variant of variants){
+      try{
+        console.debug("findPerformerByName variant", variant);
+        const data = await stashGraphQL(q, { name: variant });
+        console.debug("findPerformerByName result", data);
+        if(!data){
+          console.debug("findPerformerByName tomt svar");
+          continue;
+        }
+
+        const performers = data?.findPerformers?.performers || [];
+        const variantLower = variant.toLowerCase();
+        const match = performers.find(p => {
+          if(!p) return false;
+          const perfName = normalizeCandidateName(p.name).toLowerCase();
+          if(perfName === variantLower) return true;
+          return false;
+        });
+        if(match) return match;
+      }catch(err){
+        console.error('findPerformerByName fel:', err);
+        if(err?.status === 422){
+          console.warn('findPerformerByName 422 payload', err.payload || err.message || err);
+          continue;
+        }
+        break;
+      }
+    }
+    return null;
   }
 
-  async function createPerformerIfAllowed(name){
+  async function createPerformerIfAllowed(name, aliasCandidates){
     if(!pluginSettings.create_new_performers) return null;
-    const q = `
+    const normalized = normalizeCandidateName(name);
+    if(!normalized) return null;
+
+    let caps = await ensurePerformerSchemaCaps();
+    let extraInput = {};
+    try{
+      const result = await buildPerformerCreateInput(normalized, aliasCandidates);
+      extraInput = result.input || {};
+      caps = result.caps || caps;
+    }catch(err){
+      console.error('Kunde inte bygga performerinput från StashDB-data:', err);
+      extraInput = {};
+    }
+
+    const canUse = field => canUseInputField(caps, field);
+    if(!extraInput.aliases && Array.isArray(aliasCandidates)){
+      const aliasList = uniqueStrings(aliasCandidates.map(normalizeCandidateName)).filter(alias => alias && alias !== normalized);
+      if(aliasList.length){
+        const aliasFieldTypeRaw = getInputFieldType(caps, 'aliases');
+        const aliasListFieldTypeRaw = getInputFieldType(caps, 'alias_list');
+        const aliasWantsObject = isInputObjectType(aliasFieldTypeRaw);
+        const aliasListWantsObject = isInputObjectType(aliasListFieldTypeRaw);
+        if(canUse('aliases')) extraInput.aliases = aliasWantsObject ? aliasList : aliasList[0];
+        else if(canUse('alias_list')) extraInput.alias_list = aliasListWantsObject ? aliasList : aliasList[0];
+      }
+    }
+
+    const mutation = `
       mutation($input: PerformerCreateInput!){
         performerCreate(input:$input){ id name }
       }
     `;
-    try{
-      const d = await stashGraphQL(q, { input: { name: (name || '').trim() } });
-      return d?.performerCreate || null;
-    }catch(e){
-      const msg = String(e?.message || e);
-      // Om personen redan finns i DB: hämta den och fortsätt utan fel
-      if(/already exists/i.test(msg)){
-        try{
-          const p = await findPerformerByName(name);
-          if (p) return p;
-        }catch(_){}
-      }
-      throw e;
+
+    const attempts = [];
+    const baseInput = { name: normalized, ...extraInput };
+    attempts.push(baseInput);
+    if(Object.keys(extraInput || {}).length){
+      attempts.push({ name: normalized });
     }
+
+    let lastError = null;
+    for(let idx = 0; idx < attempts.length; idx += 1){
+      const input = attempts[idx];
+      try{
+        const data = await stashGraphQL(mutation, { input });
+        const created = data?.performerCreate || null;
+        if(created) return created;
+      }catch(err){
+        lastError = err;
+        const msg = String(err?.message || '');
+        if(/already exists/i.test(msg)){
+          try{
+            const existing = await findPerformerByName(normalized);
+            if(existing) return existing;
+          }catch(fetchErr){
+            console.error('Kunde inte kontrollera befintlig performer efter duplikatfel:', fetchErr);
+          }
+          continue;
+        }
+        if(err?.status === 422){
+          console.warn('PerformerCreate 422', err.payload || err.message || err);
+          if(idx < attempts.length - 1){
+            console.warn('PerformerCreate misslyckades med metadata, försöker igen med minimal input');
+            continue;
+          }
+        }
+        throw err;
+      }
+    }
+
+    try{
+      const existing = await findPerformerByName(normalized);
+      if(existing) return existing;
+    }catch(err){
+      console.error('Misslyckades att hämta performer efter misslyckad skapning:', err);
+    }
+
+    if(lastError){
+      if(lastError?.payload) console.warn('PerformerCreate sista felpayload', lastError.payload);
+      throw lastError;
+    }
+    return null;
   }
+
 
   async function addPerformerToSceneByName(name){
     const sceneId = getCurrentSceneId();
     if(!sceneId){ notify('Kunde inte hitta scen-ID', true); return; }
 
+    const aliasCandidates = generateAliasCandidates(name);
     let perf = await findPerformerByName(name);
     if(!perf){
-      perf = await createPerformerIfAllowed(name);
+      perf = await createPerformerIfAllowed(name, aliasCandidates);
       if(!perf){
-        notify(`Hittade ingen performer "${name}"`, true);
+        notify(`Hittade ingen performer "${normalizeCandidateName(name) || name}"`, true);
         return;
       }
     }
