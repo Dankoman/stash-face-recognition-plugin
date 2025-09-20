@@ -179,6 +179,15 @@ mutation SceneUpdate($input: SceneUpdateInput!) {
 3. Kontrollera CSP-inställningar i `face-recognition.yml`
 4. Testa med längre timeout-värde
 
+### Mixed Content / HTTPS-problem
+
+Om du kör Stash över **HTTPS** måste även din face_extractor-tjänst vara tillgänglig via HTTPS. Pluginet försöker automatiskt
+uppgradera `http://`-adresser till `https://` när sidan laddas säkert. Om uppgraderingen misslyckas får du ett felmeddelande om
+att anslutning via HTTPS inte gick att etablera. Lös det genom att antingen:
+
+1. Placera face_extractor bakom en HTTPS-proxy eller aktivera TLS direkt i tjänsten
+2. Alternativt, öppna Stash via HTTP om du måste prata med ett rent HTTP-API på det lokala nätverket
+
 ### Performer-tillägg fungerar inte
 
 1. Kontrollera att du är på en scen-sida (URL innehåller `/scenes/[ID]`)
@@ -199,10 +208,8 @@ mutation SceneUpdate($input: SceneUpdateInput!) {
 Pluginet använder Stashs inbyggda GraphQL API utan att kräva separata API-nycklar. All kommunikation sker via webbläsarens session.
 
 ### Content Security Policy
-CSP-inställningarna i `face-recognition.yml` tillåter anslutningar till:
-- `http://192.168.0.140:5000` (din specifika server)
-- `http://localhost:5000` (lokal utveckling)
-- `http://127.0.0.1:5000` (alternativ lokal adress)
+CSP-inställningarna i `face-recognition.yml` tillåter anslutningar till samma ursprung samt godtyckliga HTTP- och HTTPS-endpoints
+så att du kan konfigurera valfri backend-adress.
 
 ### Datahantering
 - Inga bilder sparas permanent av pluginet
