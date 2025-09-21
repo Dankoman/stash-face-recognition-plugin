@@ -626,6 +626,26 @@
     return null;
   }
 
+
+  const performerQueryCache = new Map();
+  function buildPerformerQuery(modifier){
+    if(performerQueryCache.has(modifier)) return performerQueryCache.get(modifier);
+    const query = `
+      query($name:String!){
+        findPerformers(
+          performer_filter:{
+            name:{ value:$name, modifier:${modifier} }
+          }
+          filter:{ per_page: 25 }
+        ){
+          performers{ id name }
+        }
+      }
+    `;
+    performerQueryCache.set(modifier, query);
+    return query;
+  }
+
   async function resolveExistingPerformer(name, aliasCandidates, duplicateDetails, duplicateMessage){
     const idCandidates = [];
     const idKeys = ["id","existingId","duplicateId","performer_id","performerId"];
@@ -661,6 +681,7 @@
       const performer = await findPerformerByName(term);
       if(performer) return performer;
     }
+    console.warn('resolveExistingPerformer miss', { name, searchTerms: Array.from(searchTerms), duplicateDetails, duplicateMessage });
     return null;
   }
 
@@ -685,43 +706,36 @@
     const normalized = normalizeCandidateName(name);
     if(!normalized) return null;
 
-    const q = `
-      query($name:String!){
-        findPerformers(
-          performer_filter:{ OR:{
-            name:{ value:$name, modifier:EQUALS },
-            aliases:{ value:$name, modifier:EQUALS }
-          }}
-          filter:{ per_page: 25 }
-        ){
-          performers{ id name }
-        }
-      }
-    `;
+    const variants = new Set(generateAliasCandidates(name));
+    variants.add(name);
+    variants.add(normalized);
 
-    const variants = generateAliasCandidates(name);
-    if(!variants.includes(name)) variants.push(name);
-    const normalizedName = normalizeCandidateName(name);
-    if(!variants.includes(normalizedName)) variants.push(normalizedName);
+    const modifiers = ['EQUALS', 'ILIKE', 'CONTAINS'];
 
-    for(const variant of variants){
-      try{
-        const data = await stashGraphQL(q, { name: variant });
-        const performers = data?.findPerformers?.performers || [];
-        if(!performers.length) continue;
-        const target = normalizeCandidateName(variant).toLowerCase();
-        const match = performers.find(p => normalizeCandidateName(p.name).toLowerCase() === target);
-        if(match) return match;
-        return performers[0];
-      }catch(err){
-        console.error('findPerformerByName fel:', err);
-        if(err?.status === 422){
-          console.warn('findPerformerByName 422 payload', err.payload || err.message || err);
-          continue;
+    for(const modifier of modifiers){
+      const query = buildPerformerQuery(modifier);
+      for(const variant of variants){
+        const term = normalizeCandidateName(variant);
+        if(!term) continue;
+        try{
+          const data = await stashGraphQL(query, { name: variant });
+          const performers = data?.findPerformers?.performers || [];
+          if(!performers.length) continue;
+          const target = modifier === 'EQUALS' ? term.toLowerCase() : null;
+          if(target){
+            const match = performers.find(p => normalizeCandidateName(p.name).toLowerCase() === target);
+            if(match) return match;
+          }
+          return performers[0];
+        }catch(err){
+          if(err?.status === 422){
+            continue;
+          }
+          console.error('findPerformerByName fel:', err.payload || err.message || err);
         }
-        break;
       }
     }
+
     return null;
   }
   async function createPerformerIfAllowed(name, aliasCandidates){
