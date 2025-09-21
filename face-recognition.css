@@ -1,10 +1,6 @@
 /* face-recognition.css (uppdaterad för större, icke-beskurna previews) */
 
 .frp-fab {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translate(-50%, 0);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -20,16 +16,11 @@
   z-index: 2147483646;
   box-shadow: 0 8px 22px rgba(0,0,0,0.45);
   backdrop-filter: blur(6px);
-  transition: background .18s ease, transform .18s ease;
+  transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
 }
 
 .frp-fab:hover {
   background: rgba(28, 31, 38, 0.92);
-  transform: translate(-50%, -2px);
-}
-
-.frp-fab:active {
-  transform: translate(-50%, 2px);
 }
 
 .frp-fab-icon {
@@ -48,6 +39,21 @@
   letter-spacing: 0.01em;
 }
 
+.frp-fab--floating {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translate(-50%, 0);
+}
+
+.frp-fab--floating:hover {
+  transform: translate(-50%, -2px);
+}
+
+.frp-fab--floating:active {
+  transform: translate(-50%, 2px);
+}
+
 .frp-fab--global {
   position: fixed;
   bottom: 24px;
@@ -55,22 +61,46 @@
   transform: translate(-50%, 0);
 }
 
+.frp-fab--panel {
+  position: relative;
+  width: 100%;
+  justify-content: center;
+  margin: 12px 0 16px;
+  transform: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+
+.frp-fab--panel:hover {
+  transform: none;
+}
+
+.frp-fab-wrapper--panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  gap: 12px;
+}
+
 .frp-fab-anchor {
   position: relative !important;
 }
 
-.frp-fab-anchor .frp-fab {
+.frp-fab-anchor .frp-fab--floating {
   left: 50%;
 }
 
 @media (max-width: 640px) {
-  .frp-fab {
+  .frp-fab--floating {
     bottom: 12px;
     transform: translate(-50%, 0);
     padding: 9px 11px;
   }
-  .frp-fab-text {
+  .frp-fab--floating .frp-fab-text {
     display: none;
+  }
+  .frp-fab--panel {
+    margin: 10px 0 12px;
   }
 }
 

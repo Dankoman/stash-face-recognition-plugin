@@ -976,6 +976,54 @@
     }
     return video.parentElement || null;
   }
+  function findInfoPanelContainer(){
+    const hintSelectors = [
+      '[data-testid="scene-details-panel"]',
+      '.scene-details-panel',
+      '.scene-tabs .scene-details',
+      '.scene-tabs .scene-info',
+      '.SceneDetails',
+      '.SceneInfoPanel'
+    ];
+    for(const sel of hintSelectors){
+      const el = document.querySelector(sel);
+      if(el) return el;
+    }
+
+    const videoHost = findVideoContainer();
+    if(!videoHost) return null;
+    const videoRect = videoHost.getBoundingClientRect ? videoHost.getBoundingClientRect() : null;
+    let parent = videoHost.parentElement;
+
+    while(parent && parent !== document.body){
+      let style;
+      try{ style = getComputedStyle(parent); }catch(_){ style = null; }
+      const isLayout = !!style && (style.display === 'flex' || style.display === 'grid');
+      if(isLayout){
+        const children = Array.from(parent.children);
+        const idx = children.findIndex(child => child === videoHost || child.contains(videoHost));
+        if(idx > -1){
+          for(let i = idx - 1; i >= 0; i--){
+            const sibling = children[i];
+            if(!sibling || sibling === videoHost) continue;
+            if(sibling.contains(videoHost)) continue;
+            if(sibling.querySelector('video')) continue;
+            if(videoRect && sibling.getBoundingClientRect){
+              const rect = sibling.getBoundingClientRect();
+              if(rect.width === 0 && rect.height === 0) continue;
+              if(rect.right > (videoRect.left + 20)) continue;
+            }
+            const text = (sibling.textContent || '').trim();
+            if(text.length < 20 && !sibling.querySelector('[data-testid], [data-scene-id], .tag-chip, table, .MuiChip-root, .key-value-row')) continue;
+            return sibling;
+          }
+        }
+      }
+      parent = parent.parentElement;
+    }
+
+    return null;
+  }
   function clearOverlay(){ document.querySelectorAll('.frp-overlay').forEach(n=>n.remove()); }
   function ensureOverlay(){
     const cont = findVideoContainer() || document.body;
@@ -1277,13 +1325,50 @@
     btn.addEventListener('contextmenu', e => { e.preventDefault(); createSettingsPanel(); });
     return btn;
   }
-  function addPluginButton(){
-    const host = findVideoContainer() || document.body;
-    if(host.querySelector('.frp-fab')) return;
-    const existing = document.querySelector('.frp-fab');
-    if(existing){ existing.remove(); }
-    const btn = createPluginButton();
-    host.appendChild(btn);
+  function resetFabAnchors(){
+    document.querySelectorAll('.frp-fab-anchor').forEach(node => {
+      if(!node.querySelector('.frp-fab')) node.classList.remove('frp-fab-anchor');
+    });
+  }
+  function ensurePanelPlacement(btn, panelHost){
+    btn.classList.add('frp-fab--panel');
+    btn.classList.remove('frp-fab--floating', 'frp-fab--global');
+
+    let wrap = btn.closest('.frp-fab-wrapper');
+    if(!wrap){
+      wrap = document.createElement('div');
+      wrap.className = 'frp-fab-wrapper frp-fab-wrapper--panel';
+      const parent = btn.parentElement;
+      if(parent){
+        parent.insertBefore(wrap, btn);
+      }
+      wrap.appendChild(btn);
+    } else {
+      wrap.classList.add('frp-fab-wrapper--panel');
+    }
+
+    if(!panelHost.contains(wrap)){
+      const insertBefore = panelHost.firstElementChild;
+      if(insertBefore){
+        panelHost.insertBefore(wrap, insertBefore);
+      } else {
+        panelHost.appendChild(wrap);
+      }
+    }
+  }
+  function ensureFloatingPlacement(btn, host){
+    btn.classList.add('frp-fab--floating');
+    btn.classList.remove('frp-fab--panel');
+
+    const wrap = btn.closest('.frp-fab-wrapper');
+    if(wrap){
+      wrap.replaceWith(btn);
+    }
+
+    if(btn.parentElement !== host){
+      host.appendChild(btn);
+    }
+
     if(host === document.body){
       btn.classList.add('frp-fab--global');
     } else {
@@ -1292,6 +1377,40 @@
       if(cs.position === 'static'){
         host.classList.add('frp-fab-anchor');
       }
+    }
+  }
+  function addPluginButton(){
+    const panelHost = findInfoPanelContainer();
+    const fallbackHost = findVideoContainer() || document.body;
+    const host = panelHost || fallbackHost;
+    if(!host) return;
+
+    let btn = document.querySelector('.frp-fab');
+    if(btn){
+      if(panelHost && panelHost.contains(btn)){
+        ensurePanelPlacement(btn, panelHost);
+        return;
+      }
+      if(!panelHost && host.contains(btn) && btn.classList.contains('frp-fab--floating')){
+        ensureFloatingPlacement(btn, host);
+        return;
+      }
+      const wrap = btn.closest('.frp-fab-wrapper');
+      if(wrap){
+        wrap.remove();
+      } else {
+        btn.remove();
+      }
+    } else {
+      btn = createPluginButton();
+    }
+
+    resetFabAnchors();
+
+    if(panelHost){
+      ensurePanelPlacement(btn, panelHost);
+    } else {
+      ensureFloatingPlacement(btn, host);
     }
   }
 
