@@ -591,6 +591,79 @@
     return payload?.data ?? null;
   }
 
+
+  async function fetchPerformerById(id){
+    if(!id) return null;
+    const query = `
+      query($id: ID!){
+        findPerformer(id:$id){ id name }
+      }
+    `;
+    try{
+      const data = await stashGraphQL(query, { id: String(id) });
+      return data?.findPerformer || null;
+    }catch(err){
+      if(err?.status === 422){
+        console.warn('fetchPerformerById 422', err.payload || err.message || err);
+        return null;
+      }
+      console.error('fetchPerformerById fel:', err);
+      return null;
+    }
+  }
+
+
+  function extractNameFromMessage(message){
+    if(!message) return null;
+    const patterns = [
+      /performer with name ['"]([^'"]+)['"] already exists/i,
+      /name ['"]([^'"]+)['"]/i
+    ];
+    for(const pattern of patterns){
+      const match = message.match(pattern);
+      if(match && match[1]) return match[1].trim();
+    }
+    return null;
+  }
+
+  async function resolveExistingPerformer(name, aliasCandidates, duplicateDetails, duplicateMessage){
+    const idCandidates = [];
+    const idKeys = ["id","existingId","duplicateId","performer_id","performerId"];
+    if(duplicateDetails){
+      for (const key of idKeys){
+        const value = duplicateDetails[key];
+        if(value !== undefined && value !== null && value !== ""){
+          idCandidates.push(String(value));
+        }
+      }
+    }
+    for (const ident of idCandidates){
+      const performer = await fetchPerformerById(ident);
+      if(performer) return performer;
+    }
+    const searchTerms = new Set();
+    if(name) searchTerms.add(name);
+    const normalizedName = normalizeCandidateName(name);
+    if(normalizedName) searchTerms.add(normalizedName);
+    if(Array.isArray(aliasCandidates)){
+      for (const alias of aliasCandidates){
+        if(alias) searchTerms.add(alias);
+        const normalizedAlias = normalizeCandidateName(alias);
+        if(normalizedAlias) searchTerms.add(normalizedAlias);
+      }
+    }
+    const extracted = extractNameFromMessage(duplicateMessage);
+    if(extracted) searchTerms.add(extracted);
+    const normalizedExtracted = normalizeCandidateName(extracted);
+    if(normalizedExtracted) searchTerms.add(normalizedExtracted);
+    for (const term of searchTerms){
+      if(!term) continue;
+      const performer = await findPerformerByName(term);
+      if(performer) return performer;
+    }
+    return null;
+  }
+
   function getCurrentSceneId(){
     // matcher /scenes/12345 eller /scenes/12345?... 
     const m = location.pathname.match(/\/scenes\/(\d+)/);
@@ -611,8 +684,9 @@
   async function findPerformerByName(name){
     const normalized = normalizeCandidateName(name);
     if(!normalized) return null;
+
     const q = `
-      query FindPerformer($name:String!){
+      query($name:String!){
         findPerformers(
           performer_filter:{ OR:{
             name:{ value:$name, modifier:EQUALS },
@@ -624,27 +698,21 @@
         }
       }
     `;
-    const variants = generateAliasCandidates(normalized);
-    variants.push(normalized);
+
+    const variants = generateAliasCandidates(name);
+    if(!variants.includes(name)) variants.push(name);
+    const normalizedName = normalizeCandidateName(name);
+    if(!variants.includes(normalizedName)) variants.push(normalizedName);
+
     for(const variant of variants){
       try{
-        console.debug("findPerformerByName variant", variant);
         const data = await stashGraphQL(q, { name: variant });
-        console.debug("findPerformerByName result", data);
-        if(!data){
-          console.debug("findPerformerByName tomt svar");
-          continue;
-        }
-
         const performers = data?.findPerformers?.performers || [];
-        const variantLower = variant.toLowerCase();
-        const match = performers.find(p => {
-          if(!p) return false;
-          const perfName = normalizeCandidateName(p.name).toLowerCase();
-          if(perfName === variantLower) return true;
-          return false;
-        });
+        if(!performers.length) continue;
+        const target = normalizeCandidateName(variant).toLowerCase();
+        const match = performers.find(p => normalizeCandidateName(p.name).toLowerCase() === target);
         if(match) return match;
+        return performers[0];
       }catch(err){
         console.error('findPerformerByName fel:', err);
         if(err?.status === 422){
@@ -656,7 +724,6 @@
     }
     return null;
   }
-
   async function createPerformerIfAllowed(name, aliasCandidates){
     if(!pluginSettings.create_new_performers) return null;
     const normalized = normalizeCandidateName(name);
@@ -710,12 +777,10 @@
         lastError = err;
         const msg = String(err?.message || '');
         if(/already exists/i.test(msg)){
-          try{
-            const existing = await findPerformerByName(normalized);
-            if(existing) return existing;
-          }catch(fetchErr){
-            console.error('Kunde inte kontrollera befintlig performer efter duplikatfel:', fetchErr);
-          }
+          const payloadErr = err?.payload?.errors?.[0] || null;
+          const duplicateDetails = payloadErr?.extensions || {};
+          const existing = await resolveExistingPerformer(name, aliasCandidates, duplicateDetails, payloadErr?.message || err?.message);
+          if(existing) return existing;
           continue;
         }
         if(err?.status === 422){
@@ -737,6 +802,17 @@
     }
 
     if(lastError){
+      const messages = [];
+      if(lastError?.message) messages.push(String(lastError.message));
+      const payloadErr = lastError?.payload?.errors?.[0] || null;
+      const payloadMsg = payloadErr?.message;
+      if(payloadMsg) messages.push(String(payloadMsg));
+      const combined = messages.join(' - ');
+      if(/already exists/i.test(combined)){
+        const duplicateDetails = payloadErr?.extensions || {};
+        const existing = await resolveExistingPerformer(name, aliasCandidates, duplicateDetails, payloadErr?.message || lastError?.message);
+        if(existing) return existing;
+      }
       if(lastError?.payload) console.warn('PerformerCreate sista felpayload', lastError.payload);
       throw lastError;
     }
@@ -751,7 +827,21 @@
     const aliasCandidates = generateAliasCandidates(name);
     let perf = await findPerformerByName(name);
     if(!perf){
-      perf = await createPerformerIfAllowed(name, aliasCandidates);
+      try{
+        perf = await createPerformerIfAllowed(name, aliasCandidates);
+      }catch(err){
+        const messages = [];
+        if(err?.message) messages.push(String(err.message));
+        const payloadErr = err?.payload?.errors?.[0] || null;
+        const payloadMsg = payloadErr?.message;
+        if(payloadMsg) messages.push(String(payloadMsg));
+        const combined = messages.join(' - ');
+        if(/already exists/i.test(combined)){
+          const duplicateDetails = payloadErr?.extensions || {};
+          perf = await resolveExistingPerformer(name, aliasCandidates, duplicateDetails, payloadMsg || err?.message);
+        }
+        if(!perf) throw err;
+      }
       if(!perf){
         notify(`Hittade ingen performer "${normalizeCandidateName(name) || name}"`, true);
         return;
@@ -781,7 +871,7 @@
     const wrap = document.createElement('div');
     wrap.className = 'fr-settings-panel';
     wrap.innerHTML = `
-      <div class="fr-sp-head">Face Recognition – Inställningar</div>
+      <div class="fr-sp-head">Face Recognition - Inställningar</div>
       <div class="fr-sp-body">
         <label>API URL:</label>
         <input type="text" id="fr-api-url" value="${pluginSettings.api_url}">
