@@ -217,14 +217,17 @@ img.frp-avatar,
 .frp-suggestion.is-low { opacity: 0.6; }
 
 .frp-preview {
-  max-width: 250px;         /* Begränsa bredden på preview */
-  max-height: 90vh;         /* så den aldrig fyller hela skärmen */
+  max-width: 140px;         /* Begränsa bredden på preview */
+  max-height: 70vh;         /* så den aldrig fyller hela skärmen */
   overflow: hidden;         /* döljer överspill */
+  pointer-events: none;
 }
 
 .frp-avatar {
   width: 100% !important;   /* fyller containern */
   height: auto !important;  /* behåller proportionerna */
+  max-width: 140px !important;
+  max-height: 70vh !important;
   object-fit: contain !important;
 }
 

@@ -260,6 +260,10 @@
     if(typeof typeName !== 'string') return false;
     return /INPUT$/i.test(typeName.trim());
   }
+  function isUploadType(typeName){
+    if(typeof typeName !== 'string') return false;
+    return typeName.trim().toLowerCase() == 'upload';
+  }
 
   function normalizeApiBaseUrl(value){
     const trimmed = (value || '').toString().trim();
@@ -382,17 +386,20 @@
     const metadata = await fetchStashdbMetadata(normalizedName, aliasCandidates);
     const input = {};
     if(!metadata){
-      return { input, metadata: null, caps };
+      return { input, metadata: null, caps, canonicalName: normalizedName, imageStrategy: { mode:'none', url:null } };
     }
 
     const performer = metadata.performer || {};
+    const canonicalName = normalizeCandidateName(performer.name) || normalizedName;
+    const primaryNameForAliases = normalizeCandidateName(canonicalName) || normalizedName;
+
     if(canUse('disambiguation') && performer.disambiguation){
       input.disambiguation = performer.disambiguation;
     }
 
     const aliasesFromMetadata = Array.isArray(performer.aliases) ? performer.aliases.map(normalizeCandidateName) : [];
     const aliasesFromArgs = Array.isArray(aliasCandidates) ? aliasCandidates.map(normalizeCandidateName) : [];
-    const aliasList = uniqueStrings([...aliasesFromMetadata, ...aliasesFromArgs]).filter(alias => alias && alias !== normalizedName);
+    const aliasList = uniqueStrings([...aliasesFromMetadata, ...aliasesFromArgs]).filter(alias => alias && alias !== primaryNameForAliases);
     const aliasFieldTypeRaw = getInputFieldType(caps, 'aliases');
     const aliasListFieldTypeRaw = getInputFieldType(caps, 'alias_list');
     const aliasWantsObject = isInputObjectType(aliasFieldTypeRaw);
@@ -503,13 +510,11 @@
       const fallbackEndpoint = metadata.source_endpoint || pluginSettings.stashdb_endpoint || 'https://stashdb.org/graphql';
       const rawStashIds = Array.isArray(performer.stash_ids) ? performer.stash_ids : [];
       const stashIds = [];
-      let encounteredSite = false;
       rawStashIds.forEach(entry => {
         if(!entry) return;
         const stashId = entry.stash_id || entry.id;
         if(!stashId) return;
         const endpoint = entry.endpoint || entry.url || fallbackEndpoint;
-        const key = `${endpoint}:${stashId}`;
         stashIds.push({ stash_id: String(stashId), endpoint });
       });
       if(!stashIds.length && performer.id){
@@ -532,9 +537,167 @@
       }
     }
 
-    return { input, metadata, caps };
+    const imageCandidates = [];
+    if(metadata.image_url) imageCandidates.push(metadata.image_url);
+    if(performer.image_url) imageCandidates.push(performer.image_url);
+    if(performer.image_path) imageCandidates.push(performer.image_path);
+    const primaryImageUrl = imageCandidates.find(url => typeof url === 'string' && url.trim());
+    let imageStrategy = { mode:'none', url:null };
+    if(primaryImageUrl){
+      const cleanUrl = String(primaryImageUrl).trim();
+      const imageFieldTypeRaw = getInputFieldType(caps, 'image');
+      if(canUse('image_url')){
+        input.image_url = cleanUrl;
+        imageStrategy = { mode:'url', url: cleanUrl };
+      } else if(canUse('image') && imageFieldTypeRaw){
+        if(isUploadType(imageFieldTypeRaw)){
+          imageStrategy = { mode:'upload', url: cleanUrl };
+        } else if(isInputObjectType(imageFieldTypeRaw)){
+          input.image = { url: cleanUrl };
+          imageStrategy = { mode:'inline', url: cleanUrl };
+        } else {
+          input.image = cleanUrl;
+          imageStrategy = { mode:'inline', url: cleanUrl };
+        }
+      }
+    }
+
+    return { input, metadata, caps, canonicalName, imageStrategy };
   }
 
+  function sanitizeFilename(value){
+    const fallback = 'performer';
+    if(value === undefined || value === null) return fallback;
+    const trimmed = String(value).trim();
+    if(!trimmed) return fallback;
+    const cleaned = trimmed.replace(/[^0-9a-zA-Z._-]+/g, '_');
+    const normalized = cleaned.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    return (normalized || fallback).slice(0, 80);
+  }
+
+  async function fetchImageBlobViaApi(name){
+    const candidate = normalizeCandidateName(name);
+    if(!candidate) return null;
+    const apiInfo = buildApiUrl('resolve_image', {
+      name: candidate,
+      source: pluginSettings.image_source,
+      stashdb_endpoint: pluginSettings.stashdb_endpoint,
+      format: 'bytes'
+    });
+    if(apiInfo?.error || !apiInfo.href) return null;
+    const ctrl = new AbortController();
+    const timeoutMs = Math.max(3, pluginSettings.api_timeout || 0) * 1000;
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try{
+      const resp = await fetch(apiInfo.href, { signal: ctrl.signal });
+      if(!resp.ok || resp.status === 204) return null;
+      const blob = await resp.blob();
+      if(!blob || !blob.size) return null;
+      return blob;
+    }catch(err){
+      if(err?.name !== 'AbortError'){
+        console.warn('Kunde inte hämta bild via API:', err);
+      }
+      return null;
+    }finally{
+      clearTimeout(timer);
+    }
+  }
+
+  async function fetchImageBlobDirect(url){
+    if(!url) return null;
+    const href = String(url).trim();
+    if(!href) return null;
+    const ctrl = new AbortController();
+    const timeoutMs = Math.max(3, pluginSettings.api_timeout || 0) * 1000;
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try{
+      const resp = await fetch(href, { signal: ctrl.signal, credentials: 'omit' });
+      if(!resp.ok) return null;
+      const blob = await resp.blob();
+      if(!blob || !blob.size) return null;
+      return blob;
+    }catch(err){
+      if(err?.name !== 'AbortError'){
+        console.warn('Kunde inte hämta bild direkt:', err);
+      }
+      return null;
+    }finally{
+      clearTimeout(timer);
+    }
+  }
+
+  async function fetchImageBlobForPerformer(primaryName, fallbackUrl, metadata){
+    const rawNames = [];
+    if(primaryName) rawNames.push(primaryName);
+    const metaName = metadata?.performer?.name;
+    if(metaName) rawNames.push(metaName);
+    const candidates = uniqueStrings(rawNames.map(normalizeCandidateName).filter(Boolean));
+    for(const candidate of candidates){
+      const blob = await fetchImageBlobViaApi(candidate);
+      if(blob) return blob;
+    }
+
+    const rawUrls = [];
+    if(fallbackUrl) rawUrls.push(fallbackUrl);
+    if(metadata?.image_url) rawUrls.push(metadata.image_url);
+    if(metadata?.performer?.image_url) rawUrls.push(metadata.performer.image_url);
+    if(metadata?.performer?.image_path) rawUrls.push(metadata.performer.image_path);
+    const urlCandidates = uniqueStrings(rawUrls.map(url => url && String(url).trim()).filter(Boolean));
+    for(const url of urlCandidates){
+      const blob = await fetchImageBlobDirect(url);
+      if(blob) return blob;
+    }
+    return null;
+  }
+
+  async function uploadPerformerImageBlob(performerId, blob, preferredName){
+    if(!performerId || !blob) return false;
+    const mutation = `
+      mutation($input: PerformerUpdateInput!){
+        performerUpdate(input:$input){ id }
+      }
+    `;
+    const operations = {
+      query: mutation,
+      variables: {
+        input: {
+          id: String(performerId),
+          image: null
+        }
+      }
+    };
+    const map = { '0': ['variables.input.image'] };
+    const form = new FormData();
+    form.append('operations', JSON.stringify(operations));
+    form.append('map', JSON.stringify(map));
+    const filename = `${sanitizeFilename(preferredName || performerId)}.jpg`;
+    form.append('0', blob, filename);
+    const resp = await fetch('/graphql', { method: 'POST', body: form, credentials: 'include' });
+    const text = await resp.text();
+    let payload = null;
+    if(text){
+      try{ payload = JSON.parse(text); }catch(_){ payload = null; }
+    }
+    if(!resp.ok || payload?.errors){
+      const message = payload?.errors?.map(e => e?.message).filter(Boolean).join('; ') || `GraphQL HTTP ${resp.status}`;
+      const error = new Error(message);
+      error.payload = payload ?? text;
+      throw error;
+    }
+    return true;
+  }
+
+  async function tryAttachPerformerImage(performerId, canonicalName, imageStrategy, metadata){
+    if(!imageStrategy || imageStrategy.mode !== 'upload') return;
+    try{
+      const blob = await fetchImageBlobForPerformer(canonicalName, imageStrategy.url, metadata);
+      if(!blob) return;
+      await uploadPerformerImageBlob(performerId, blob, canonicalName);
+    }catch(err){
+      console.warn('Kunde inte bifoga performer-bild:', err);
+    }
+  }
 
   function notify(msg, isErr=false){
     const el = document.createElement('div');
@@ -745,18 +908,31 @@
 
     let caps = await ensurePerformerSchemaCaps();
     let extraInput = {};
+    let canonicalName = normalized;
+    let metadataForCreate = null;
+    let imageStrategy = { mode:'none', url:null };
     try{
       const result = await buildPerformerCreateInput(normalized, aliasCandidates);
       extraInput = result.input || {};
       caps = result.caps || caps;
+      if(result?.canonicalName){
+        const candidateName = normalizeCandidateName(result.canonicalName);
+        if(candidateName) canonicalName = candidateName;
+      }
+      metadataForCreate = result.metadata || null;
+      if(result.imageStrategy) imageStrategy = result.imageStrategy;
     }catch(err){
       console.error('Kunde inte bygga performerinput från StashDB-data:', err);
       extraInput = {};
     }
 
+    const combinedAliasCandidates = Array.isArray(aliasCandidates) ? [...aliasCandidates] : [];
+    if(name && !combinedAliasCandidates.includes(name)) combinedAliasCandidates.push(name);
+    if(canonicalName && !combinedAliasCandidates.includes(canonicalName)) combinedAliasCandidates.push(canonicalName);
+
     const canUse = field => canUseInputField(caps, field);
-    if(!extraInput.aliases && Array.isArray(aliasCandidates)){
-      const aliasList = uniqueStrings(aliasCandidates.map(normalizeCandidateName)).filter(alias => alias && alias !== normalized);
+    if(!extraInput.aliases && !extraInput.alias_list && combinedAliasCandidates.length){
+      const aliasList = uniqueStrings(combinedAliasCandidates.map(normalizeCandidateName)).filter(alias => alias && alias !== canonicalName);
       if(aliasList.length){
         const aliasFieldTypeRaw = getInputFieldType(caps, 'aliases');
         const aliasListFieldTypeRaw = getInputFieldType(caps, 'alias_list');
@@ -774,10 +950,10 @@
     `;
 
     const attempts = [];
-    const baseInput = { name: normalized, ...extraInput };
+    const baseInput = { ...extraInput, name: canonicalName };
     attempts.push(baseInput);
     if(Object.keys(extraInput || {}).length){
-      attempts.push({ name: normalized });
+      attempts.push({ name: canonicalName });
     }
 
     let lastError = null;
@@ -786,14 +962,17 @@
       try{
         const data = await stashGraphQL(mutation, { input });
         const created = data?.performerCreate || null;
-        if(created) return created;
+        if(created){
+          await tryAttachPerformerImage(created.id, canonicalName, imageStrategy, metadataForCreate);
+          return created;
+        }
       }catch(err){
         lastError = err;
         const msg = String(err?.message || '');
         if(/already exists/i.test(msg)){
           const payloadErr = err?.payload?.errors?.[0] || null;
           const duplicateDetails = payloadErr?.extensions || {};
-          const existing = await resolveExistingPerformer(name, aliasCandidates, duplicateDetails, payloadErr?.message || err?.message);
+          const existing = await resolveExistingPerformer(name, combinedAliasCandidates, duplicateDetails, payloadErr?.message || err?.message);
           if(existing) return existing;
           continue;
         }
@@ -809,8 +988,12 @@
     }
 
     try{
-      const existing = await findPerformerByName(normalized);
-      if(existing) return existing;
+      const existingCanonical = await findPerformerByName(canonicalName);
+      if(existingCanonical) return existingCanonical;
+      if(canonicalName !== normalized){
+        const existingNormalized = await findPerformerByName(normalized);
+        if(existingNormalized) return existingNormalized;
+      }
     }catch(err){
       console.error('Misslyckades att hämta performer efter misslyckad skapning:', err);
     }
@@ -824,7 +1007,7 @@
       const combined = messages.join(' - ');
       if(/already exists/i.test(combined)){
         const duplicateDetails = payloadErr?.extensions || {};
-        const existing = await resolveExistingPerformer(name, aliasCandidates, duplicateDetails, payloadErr?.message || lastError?.message);
+        const existing = await resolveExistingPerformer(name, combinedAliasCandidates, duplicateDetails, payloadErr?.message || lastError?.message);
         if(existing) return existing;
       }
       if(lastError?.payload) console.warn('PerformerCreate sista felpayload', lastError.payload);
@@ -1144,20 +1327,48 @@
     function placeTipNear(el, tip){
       const r  = el.getBoundingClientRect();
       const tr = tip.getBoundingClientRect();
-      const pad = 8;
-      const vw = window.innerWidth, vh = window.innerHeight;
+      const pad = 12;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
 
       let x = r.right + pad;
-      let y = r.top - 4;
+      let y = r.top + (r.height - tr.height) / 2;
+      const minTop = pad;
+      const maxTop = Math.max(pad, vh - tr.height - pad);
 
-      if (x + tr.width  > vw) x = Math.max(pad, r.left - pad - tr.width);
-      if (x < pad) x = pad;
+      if (y < minTop) y = minTop;
+      if (y > maxTop) y = maxTop;
 
-      if (y + tr.height > vh) y = Math.max(pad, vh - tr.height - pad);
-      if (y < pad) y = pad;
+      if (x + tr.width + pad > vw){
+        x = r.left - tr.width - pad;
+        if (x < pad){
+          x = Math.max(pad, Math.min(vw - tr.width - pad, r.left + pad));
+        }
+      }
+
+      x = Math.max(pad, Math.min(vw - tr.width - pad, x));
+      if (x + tr.width > vw - pad){
+        x = vw - tr.width - pad;
+      }
 
       tip.style.left = x + 'px';
-      tip.style.top  = y + 'px';
+      tip.style.top  = Math.max(minTop, Math.min(maxTop, y)) + 'px';
+    }
+
+    function ensureTipVisible(tip){
+      if(!tip) return;
+      const rect = tip.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const pad = 8;
+      let left = rect.left;
+      let top = rect.top;
+      if(rect.left < pad) left = pad;
+      if(rect.right > vw - pad) left = Math.max(pad, vw - rect.width - pad);
+      if(rect.top < pad) top = pad;
+      if(rect.bottom > vh - pad) top = Math.max(pad, vh - rect.height - pad);
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
     }
 
     function removeTip(){
@@ -1203,6 +1414,7 @@
           if(tipRef !== tip) return;
           if(!tip.parentNode) document.body.appendChild(tip);
           placeTipNear(rowEl, tip);
+          ensureTipVisible(tip);
         };
         img.onerror = () => {
           if(getCachedImageHref(name) === url){
@@ -1213,11 +1425,17 @@
           }
           tip.remove();
         };
+        if(!tip.parentNode) document.body.appendChild(tip);
         img.src = url;
       }, 150);
     });
 
-    rowEl.addEventListener('mousemove', ()=>{ if (tipRef) placeTipNear(rowEl, tipRef); });
+    rowEl.addEventListener('mousemove', () => {
+      if(!tipRef) return;
+      placeTipNear(rowEl, tipRef);
+      ensureTipVisible(tipRef);
+    });
+
     rowEl.addEventListener('mouseleave', ()=>{
       if(enterTimer){ clearTimeout(enterTimer); enterTimer = null; }
       if(pendingCtrl){
