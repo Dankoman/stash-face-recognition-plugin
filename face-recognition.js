@@ -1103,7 +1103,10 @@
       let y = r.top - 4;
 
       if (x + tr.width  > vw) x = Math.max(pad, r.left - pad - tr.width);
+      if (x < pad) x = pad;
+
       if (y + tr.height > vh) y = Math.max(pad, vh - tr.height - pad);
+      if (y < pad) y = pad;
 
       tip.style.left = x + 'px';
       tip.style.top  = y + 'px';
@@ -1140,9 +1143,9 @@
 
         const { tip, img } = makePreviewTooltip();
         tip.dataset.frPreview = name;
-        tip.style.maxWidth = '150px';
-        tip.style.maxHeight = '90vh';
-        img.style.maxWidth = '150px';
+        tip.style.maxWidth = '120px';
+        tip.style.maxHeight = '80vh';
+        img.style.maxWidth = '120px';
         img.style.width = '100%';
         img.style.height = 'auto';
         img.style.objectFit = 'contain';
