@@ -1331,26 +1331,40 @@
       const vw = window.innerWidth;
       const vh = window.innerHeight;
 
-      let x = r.right + pad;
+      const desiredRight = r.right + pad;
+      const desiredLeft = r.left - tr.width - pad;
+      const spaceRight = vw - (r.right + pad);
+      const spaceLeft = r.left - pad;
+      let placeLeft = false;
+
+      let x = desiredRight;
+      if(desiredRight + tr.width > vw - pad){
+        if(desiredLeft >= pad){
+          x = Math.max(pad, desiredLeft);
+          placeLeft = true;
+        }else{
+          x = Math.max(pad, Math.min(vw - tr.width - pad, desiredRight));
+        }
+      }else if(desiredLeft >= pad && spaceLeft > spaceRight){
+        x = Math.max(pad, desiredLeft);
+        placeLeft = true;
+      }
+
       let y = r.top + (r.height - tr.height) / 2;
       const minTop = pad;
       const maxTop = Math.max(pad, vh - tr.height - pad);
-
       if (y < minTop) y = minTop;
       if (y > maxTop) y = maxTop;
 
-      if (x + tr.width + pad > vw){
-        x = r.left - tr.width - pad;
-        if (x < pad){
-          x = Math.max(pad, Math.min(vw - tr.width - pad, r.left + pad));
-        }
+      if (x < pad){
+        x = pad;
+        placeLeft = false;
       }
-
-      x = Math.max(pad, Math.min(vw - tr.width - pad, x));
       if (x + tr.width > vw - pad){
-        x = vw - tr.width - pad;
+        x = Math.max(pad, vw - tr.width - pad);
       }
 
+      tip.dataset.frPreviewSide = placeLeft ? 'left' : 'right';
       tip.style.left = x + 'px';
       tip.style.top  = Math.max(minTop, Math.min(maxTop, y)) + 'px';
     }
