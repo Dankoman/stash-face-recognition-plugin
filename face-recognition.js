@@ -5,6 +5,8 @@
   const LS_KEY = 'face_recognition_plugin_settings';
   const imageCache = new Map(); // name -> { href, objectUrl } | null
 
+  const STASH_PLUGIN_NAME = 'Face Recognition Plugin';
+
   let pluginSettings = {
     api_url: 'http://192.168.0.140:5000',
     api_timeout: 30,
@@ -27,6 +29,73 @@
   }
   function saveSettings(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); }catch{}
+  }
+
+  function parseBooleanSetting(value){
+    if(value === undefined || value === null) return undefined;
+    if(typeof value === 'boolean') return value;
+    const normalized = String(value).trim().toLowerCase();
+    if(!normalized) return undefined;
+    if(['true','1','yes','on'].includes(normalized)) return true;
+    if(['false','0','no','off'].includes(normalized)) return false;
+    return undefined;
+  }
+
+  function coerceSettingValue(key, value){
+    if(value === undefined || value === null) return undefined;
+    switch(key){
+      case 'api_timeout':
+      case 'min_confidence':
+      case 'max_suggestions':{
+        const num = parseInt(value, 10);
+        return Number.isFinite(num) ? num : undefined;
+      }
+      case 'api_url':
+      case 'stashdb_endpoint':{
+        const text = String(value).trim();
+        return text ? text : undefined;
+      }
+      case 'image_source':{
+        const text = String(value).trim().toLowerCase();
+        return text ? text : undefined;
+      }
+      case 'show_confidence':
+      case 'auto_add_performers':
+      case 'create_new_performers':
+        return parseBooleanSetting(value);
+      default:
+        return undefined;
+    }
+  }
+
+  async function mergePluginSettingsFromBackend(){
+    try{
+      const query = `
+        query($name:String!){
+          plugin(name:$name){
+            id
+            settings{ key value }
+          }
+        }
+      `;
+      const data = await stashGraphQL(query, { name: STASH_PLUGIN_NAME });
+      const rawSettings = data?.plugin?.settings;
+      if(!Array.isArray(rawSettings) || !rawSettings.length) return;
+      const merged = {};
+      for(const entry of rawSettings){
+        if(!entry || !entry.key) continue;
+        const coerced = coerceSettingValue(entry.key, entry.value);
+        if(coerced === undefined) continue;
+        merged[entry.key] = coerced;
+      }
+      if(Object.keys(merged).length){
+        pluginSettings = { ...pluginSettings, ...merged };
+        pluginSettings.api_url = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
+        saveSettings();
+      }
+    }catch(err){
+      console.warn('Kunde inte läsa plugin-inställningar:', err);
+    }
   }
 
   function arrayBufferToBase64(buffer){
@@ -1711,8 +1780,9 @@
     }
   }
 
-  function init(){
+  async function init(){
     loadSettings();
+    await mergePluginSettingsFromBackend();
     if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addPluginButton);
     else addPluginButton();
 
@@ -1726,5 +1796,5 @@
     }, 1000);
   }
 
-  try{ init(); }catch(e){ console.error('Initfel:', e); }
+  init().catch(e => console.error('Initfel:', e));
 })();
