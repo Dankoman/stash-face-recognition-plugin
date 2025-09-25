@@ -10,25 +10,19 @@ ui:
     - face-recognition.css
   csp:
     script-src:
-      - 'self'
+      - "'self'"
     style-src:
-      - 'self'
-      - 'unsafe-inline'
+      - "'self'"
+      - "'unsafe-inline'"
     connect-src:
-      - 'self'
-      - https:
-      - http:
-      - http://192.168.0.140:5000
-      - http://localhost:5000
-      - http://127.0.0.1:5000
-      - http://localhost:9999
-      - http://127.0.0.1:9999
-    img-src:
-      - 'self'
-      - 'data:'
-      - 'blob:'
-      - 'https:'
-      - 'http:'
+      - "'self'"
+      - "https:"
+      - "http:"
+      - "http://192.168.0.140:5000"
+      - "http://localhost:5000"
+      - "http://127.0.0.1:5000"
+      - "http://localhost:9999"
+      - "http://127.0.0.1:9999"
 
 
 settings:
