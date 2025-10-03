@@ -20,6 +20,8 @@
     // stashdb_api_key hanteras på backend via env
   };
 
+  let overlayClearTimer = null;
+
   function loadSettings(){
     try{
       const raw = localStorage.getItem(LS_KEY);
@@ -1276,7 +1278,13 @@
 
     return null;
   }
-  function clearOverlay(){ document.querySelectorAll('.frp-overlay').forEach(n=>n.remove()); }
+  function clearOverlay(){
+    document.querySelectorAll('.frp-overlay').forEach(n=>n.remove());
+    if(overlayClearTimer){
+      clearTimeout(overlayClearTimer);
+      overlayClearTimer = null;
+    }
+  }
   function ensureOverlay(){
     const cont = findVideoContainer() || document.body;
     let ov = cont.querySelector('.frp-overlay');
@@ -1294,6 +1302,16 @@
     ov.style.zIndex = '2147483647';
     cont.appendChild(ov);
     return ov;
+  }
+
+  function scheduleOverlayAutoClear(){
+    if(overlayClearTimer){
+      clearTimeout(overlayClearTimer);
+    }
+    overlayClearTimer = setTimeout(() => {
+      overlayClearTimer = null;
+      clearOverlay();
+    }, 30000);
   }
 
   // ---------------- Tooltip (förhandsbild) ----------------
@@ -1532,6 +1550,7 @@
   // ---------------- Overlay-rendering ----------------
   function renderRecognizeOverlay(items){
     clearOverlay();
+    if(!items || !items.length) return;
     const video = findVideoElement();
     if(!video){ notify('Ingen video för overlay', true); return; }
     const ov = ensureOverlay();
@@ -1612,6 +1631,8 @@
       box.appendChild(sug);
       ov.appendChild(box);
     });
+
+    scheduleOverlayAutoClear();
   }
 
   // ---------------- UI-knapp ----------------
