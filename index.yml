@@ -1,5 +1,4 @@
-name: Dankoman Plugins
-packages:
-  - name: Face Recognition Plugin
-    version: 2.0.0
-    path: face-recognition.yml
+- name: Face Recognition Plugin
+  version: 2.0.0
+  path: face-recognition.yml
+  description: Plugin för ansiktsigenkänning
