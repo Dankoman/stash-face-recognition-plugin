@@ -1569,6 +1569,7 @@
       const height = h * sy;
 
       const box = document.createElement('div');
+      box.className = 'frp-face-box';
       Object.assign(box.style, {
         position: 'fixed', left: left + 'px', top: top + 'px',
         width: width + 'px', height: height + 'px',
