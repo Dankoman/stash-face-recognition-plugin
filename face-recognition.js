@@ -1324,7 +1324,7 @@
       background: '#0f1115', boxShadow: '0 8px 18px rgba(0,0,0,.35)',
       pointerEvents: 'none', zIndex: 2147483647,
       overflow: 'visible',
-      maxWidth: '150px',
+      maxWidth: '225px',
       maxHeight: '90vh'
     });
 
@@ -1336,10 +1336,10 @@
       width: '100%',
       height: 'auto',
       objectFit: 'contain',
-      maxWidth: '150px',
+      maxWidth: '225px',
       maxHeight: '90vh'
     });
-    img.style.setProperty('max-width', '150px', 'important');
+    img.style.setProperty('max-width', '225px', 'important');
     img.style.setProperty('max-height', '90vh', 'important');
     img.style.setProperty('width', '100%', 'important');
     img.style.setProperty('height', 'auto', 'important');
