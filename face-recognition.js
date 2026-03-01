@@ -1574,7 +1574,8 @@
         position: 'fixed', left: left + 'px', top: top + 'px',
         width: width + 'px', height: height + 'px',
         border: '2px solid rgba(0,200,255,0.9)', borderRadius: '6px',
-        boxShadow: '0 0 0 1px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.4)'
+        boxShadow: '0 0 0 1px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.4)',
+        pointerEvents: 'auto', cursor: 'pointer', transition: 'border-color .15s'
       });
 
       const sug = document.createElement('div');
@@ -1585,6 +1586,7 @@
         border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px',
         overflow: 'hidden', backdropFilter: 'blur(6px)', pointerEvents: 'auto'
       });
+      sug.style.setProperty('display', 'none', 'important');
 
       const minPct = Math.max(0, Math.min(100, pluginSettings.min_confidence));
       const cands = (face.candidates || [])
@@ -1635,8 +1637,20 @@
 
       // Visa/dölj namnlistan med fördröjning
       let hideTimer = null;
-      function showSug() { clearTimeout(hideTimer); sug.classList.add('visible'); box.classList.add('active'); }
-      function schedulHide() { hideTimer = setTimeout(() => { sug.classList.remove('visible'); box.classList.remove('active'); }, 400); }
+      function showSug() {
+        clearTimeout(hideTimer);
+        sug.style.setProperty('display', 'block', 'important');
+        box.style.setProperty('border-color', 'rgba(0, 200, 255, 1)', 'important');
+        box.style.setProperty('z-index', '100', 'important');
+      }
+      function schedulHide() {
+        hideTimer = setTimeout(() => {
+          sug.style.setProperty('display', 'none', 'important');
+          box.style.setProperty('border-color', 'rgba(0, 200, 255, 0.9)', 'important');
+          box.style.setProperty('z-index', 'auto', 'important');
+        }, 400);
+      }
+
       box.addEventListener('mouseenter', showSug);
       box.addEventListener('mouseleave', schedulHide);
       sug.addEventListener('mouseenter', showSug);

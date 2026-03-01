@@ -1,6 +1,6 @@
 name: Face Recognition Plugin
 description: Plugin för ansiktsigenkänning som kan pausa scener, extrahera bilder, visa bounding boxes med namn som overlay och lägga till identifierade personer till scenen
-version: 2.1.3
+version: 2.1.4
 url: https://github.com/Dankoman/face_extractor
 
 ui:
