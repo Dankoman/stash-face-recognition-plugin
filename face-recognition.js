@@ -1324,6 +1324,7 @@
       background: '#0f1115', boxShadow: '0 8px 18px rgba(0,0,0,.35)',
       pointerEvents: 'none', zIndex: 2147483647,
       overflow: 'visible',
+      width: '225px',
       maxWidth: '225px',
       maxHeight: '90vh'
     });
@@ -1333,7 +1334,7 @@
     img.className = 'frp-avatar';
     Object.assign(img.style, {
       display: 'block',
-      width: '100%',
+      width: '225px',
       height: 'auto',
       objectFit: 'contain',
       maxWidth: '225px',
@@ -1341,7 +1342,7 @@
     });
     img.style.setProperty('max-width', '225px', 'important');
     img.style.setProperty('max-height', '90vh', 'important');
-    img.style.setProperty('width', '100%', 'important');
+    img.style.setProperty('width', '225px', 'important');
     img.style.setProperty('height', 'auto', 'important');
     img.style.setProperty('object-fit', 'contain', 'important');
 
@@ -1503,10 +1504,11 @@
 
         const { tip, img } = makePreviewTooltip();
         tip.dataset.frPreview = name;
+        tip.style.width = '225px';
         tip.style.maxWidth = '225px';
         tip.style.maxHeight = '80vh';
         img.style.maxWidth = '225px';
-        img.style.width = '100%';
+        img.style.width = '225px';
         img.style.height = 'auto';
         img.style.objectFit = 'contain';
         tipRef = tip;
