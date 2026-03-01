@@ -1503,9 +1503,9 @@
 
         const { tip, img } = makePreviewTooltip();
         tip.dataset.frPreview = name;
-        tip.style.maxWidth = '120px';
+        tip.style.maxWidth = '225px';
         tip.style.maxHeight = '80vh';
-        img.style.maxWidth = '120px';
+        img.style.maxWidth = '225px';
         img.style.width = '100%';
         img.style.height = 'auto';
         img.style.objectFit = 'contain';
@@ -1577,6 +1577,7 @@
       });
 
       const sug = document.createElement('div');
+      sug.className = 'frp-suggestions';
       Object.assign(sug.style, {
         position: 'absolute', left: '0px', top: '100%', marginTop: '6px',
         minWidth: '240px', background: 'rgba(18,18,18,0.92)', color: '#f2f2f2',

@@ -1,5 +1,5 @@
 - name: Face Recognition Plugin
-  version: 2.1.1
+  version: 2.1.2
   path: face-recognition.zip
-  sha256: 000003ad8c3fd7f5606ffc1e4e93c7bf7c95c074c2986e97e6a983cada7ee4d2
+  sha256: 290b73f9353c0c6b3d61e4b940dc15dc93474ff2d5991c5740487e719c2b6129
   description: Plugin för ansiktsigenkänning
