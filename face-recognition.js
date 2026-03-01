@@ -1630,6 +1630,16 @@
       }
 
       box.appendChild(sug);
+
+      // Visa/dölj namnlistan med fördröjning
+      let hideTimer = null;
+      function showSug() { clearTimeout(hideTimer); sug.classList.add('visible'); box.classList.add('active'); }
+      function schedulHide() { hideTimer = setTimeout(() => { sug.classList.remove('visible'); box.classList.remove('active'); }, 400); }
+      box.addEventListener('mouseenter', showSug);
+      box.addEventListener('mouseleave', schedulHide);
+      sug.addEventListener('mouseenter', showSug);
+      sug.addEventListener('mouseleave', schedulHide);
+
       ov.appendChild(box);
     });
 
