@@ -50,6 +50,18 @@ settings:
     displayName: Skapa nya performers
     description: Skapa nya performer-poster för okända ansikten
     type: BOOLEAN
+  max_suggestions:
+    displayName: Max förslag (topp-K)
+    description: Antal förslag per ansikte (1-10)
+    type: NUMBER
+  image_source:
+    displayName: Bildkälla
+    description: Källa för preview-bilder (local, stashdb, eller both)
+    type: STRING
+  stashdb_endpoint:
+    displayName: StashDB Endpoint
+    description: URL till StashDB GraphQL-endpoint (t.ex. https://stashdb.org/graphql)
+    type: STRING
   metadata_source:
     displayName: Metadatakälla
     description: Välj primär källa för performer-metadata (stashdb, tpdb, pmvstash, fansdb). Förvalt är stashdb.

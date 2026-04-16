@@ -6,6 +6,7 @@
   const imageCache = new Map(); // name -> { href, objectUrl } | null
 
   const STASH_PLUGIN_NAME = 'Face Recognition Plugin';
+  let pluginId = null; // Stash internal plugin ID, resolved at runtime
 
   let pluginSettings = {
     api_url: 'http://192.168.0.140:5000',
@@ -17,7 +18,11 @@
     max_suggestions: 3,
     image_source: 'stashdb', // local|stashdb|both (skickas till backend)
     stashdb_endpoint: 'https://stashdb.org/graphql',
-    // stashdb_api_key hanteras på backend via env
+    metadata_source: 'stashdb', // stashdb|tpdb|pmvstash|fansdb
+    stashdb_api_key: '',
+    tpdb_api_key: '',
+    pmvstash_api_key: '',
+    fansdb_api_key: '',
   };
 
   let overlayClearTimer = null;
@@ -57,8 +62,16 @@
         const text = String(value).trim();
         return text ? text : undefined;
       }
-      case 'image_source': {
+      case 'image_source':
+      case 'metadata_source': {
         const text = String(value).trim().toLowerCase();
+        return text ? text : undefined;
+      }
+      case 'stashdb_api_key':
+      case 'tpdb_api_key':
+      case 'pmvstash_api_key':
+      case 'fansdb_api_key': {
+        const text = String(value).trim();
         return text ? text : undefined;
       }
       case 'show_confidence':
@@ -81,6 +94,8 @@
         }
       `;
       const data = await stashGraphQL(query, { name: STASH_PLUGIN_NAME });
+      // Store plugin ID for write-back via configurePlugin
+      if (data?.plugin?.id) pluginId = data.plugin.id;
       const rawSettings = data?.plugin?.settings;
       if (!Array.isArray(rawSettings) || !rawSettings.length) return;
       const merged = {};
@@ -1157,16 +1172,59 @@
     notify(`La till "${perf.name}" i scenen`);
   }
 
+  // ---------------- Two-way sync: push settings to Stash backend ----------------
+  async function saveSettingsToBackend() {
+    if (!pluginId) {
+      console.warn('Plugin-ID okänt, kan inte synka tillbaka till Stash');
+      return;
+    }
+    try {
+      const mutation = `
+        mutation ConfigurePlugin($plugin_id: ID!, $input: Map!) {
+          configurePlugin(plugin_id: $plugin_id, input: $input)
+        }
+      `;
+      // Build a plain object with all settings
+      const input = {};
+      const stringKeys = ['api_url', 'stashdb_endpoint', 'image_source', 'metadata_source',
+                          'stashdb_api_key', 'tpdb_api_key', 'pmvstash_api_key', 'fansdb_api_key'];
+      const numberKeys = ['api_timeout', 'min_confidence', 'max_suggestions'];
+      const boolKeys = ['show_confidence', 'auto_add_performers', 'create_new_performers'];
+      for (const key of stringKeys) {
+        if (pluginSettings[key] !== undefined && pluginSettings[key] !== null && pluginSettings[key] !== '') {
+          input[key] = String(pluginSettings[key]);
+        }
+      }
+      for (const key of numberKeys) {
+        if (pluginSettings[key] !== undefined && pluginSettings[key] !== null) {
+          input[key] = pluginSettings[key];
+        }
+      }
+      for (const key of boolKeys) {
+        if (pluginSettings[key] !== undefined && pluginSettings[key] !== null) {
+          input[key] = pluginSettings[key];
+        }
+      }
+      await stashGraphQL(mutation, { plugin_id: pluginId, input });
+    } catch (err) {
+      console.warn('Kunde inte spara inställningar till Stash:', err);
+    }
+  }
+
   // ---------------- Settings panel (högerklick) ----------------
+  function escapeAttr(val) {
+    return String(val ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  }
+
   function createSettingsPanel() {
     if (document.querySelector('.fr-settings-panel')) return; // en instans åt gången
     const wrap = document.createElement('div');
     wrap.className = 'fr-settings-panel';
     wrap.innerHTML = `
       <div class="fr-sp-head">Face Recognition - Inställningar</div>
-      <div class="fr-sp-body">
+      <div class="fr-sp-body" style="max-height:80vh;overflow-y:auto">
         <label>API URL:</label>
-        <input type="text" id="fr-api-url" value="${pluginSettings.api_url}">
+        <input type="text" id="fr-api-url" value="${escapeAttr(pluginSettings.api_url)}">
 
         <label>API-timeout (sek):</label>
         <input type="number" id="fr-api-timeout" value="${pluginSettings.api_timeout}" min="1" max="120">
@@ -1193,10 +1251,28 @@
         <input type="number" id="fr-max-suggestions" value="${pluginSettings.max_suggestions}" min="1" max="10">
 
         <label>Bildkälla (local | stashdb | both):</label>
-        <input type="text" id="fr-image-source" value="${pluginSettings.image_source}">
+        <input type="text" id="fr-image-source" value="${escapeAttr(pluginSettings.image_source)}">
 
-        <label>StashDB endpoint (proxy använder denna):</label>
-        <input type="text" id="fr-stashdb-endpoint" value="${pluginSettings.stashdb_endpoint}">
+        <label>Metadatakälla (stashdb | tpdb | pmvstash | fansdb):</label>
+        <input type="text" id="fr-metadata-source" value="${escapeAttr(pluginSettings.metadata_source)}">
+
+        <label>StashDB endpoint:</label>
+        <input type="text" id="fr-stashdb-endpoint" value="${escapeAttr(pluginSettings.stashdb_endpoint)}">
+
+        <hr style="margin:12px 0;border-color:#3a3a3a;">
+        <div style="font-size:11px;color:#7a7f8c;margin-bottom:6px">API-nycklar (valfritt, skickas till backend)</div>
+
+        <label>StashDB API Key:</label>
+        <input type="text" id="fr-stashdb-api-key" value="${escapeAttr(pluginSettings.stashdb_api_key)}" placeholder="hanteras via backend .env om tomt">
+
+        <label>ThePornDB API Key:</label>
+        <input type="text" id="fr-tpdb-api-key" value="${escapeAttr(pluginSettings.tpdb_api_key)}" placeholder="hanteras via backend .env om tomt">
+
+        <label>PMVStash API Key:</label>
+        <input type="text" id="fr-pmvstash-api-key" value="${escapeAttr(pluginSettings.pmvstash_api_key)}" placeholder="hanteras via backend .env om tomt">
+
+        <label>FansDB API Key:</label>
+        <input type="text" id="fr-fansdb-api-key" value="${escapeAttr(pluginSettings.fansdb_api_key)}" placeholder="hanteras via backend .env om tomt">
 
         <div class="fr-sp-actions">
           <button type="button" id="fr-sp-save">Spara</button>
@@ -1206,11 +1282,12 @@
 
     const style = document.createElement('style');
     style.textContent = `
-      .fr-settings-panel{position:fixed;top:64px;right:16px;width:320px;background:#16181d;color:#e5e7eb;border:1px solid #2a2f39;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.6);z-index:10000}
+      .fr-settings-panel{position:fixed;top:64px;right:16px;width:340px;background:#16181d;color:#e5e7eb;border:1px solid #2a2f39;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.6);z-index:10000}
       .fr-sp-head{font-weight:600;padding:10px 12px;border-bottom:1px solid #2a2f39}
       .fr-sp-body{padding:12px}
       .fr-sp-body label{display:block;margin-top:10px;margin-bottom:6px;font-size:12px;color:#aab0bb}
-      .fr-sp-body input[type=text], .fr-sp-body input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid #2a2f39;background:#0f1115;color:#e5e7eb}
+      .fr-sp-body input[type=text], .fr-sp-body input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid #2a2f39;background:#0f1115;color:#e5e7eb;box-sizing:border-box}
+      .fr-sp-body input::placeholder{color:#555;font-style:italic}
       .fr-sp-actions{display:flex;gap:8px;margin-top:14px}
       .fr-sp-actions button{background:#2a61ff;color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
       .fr-sp-actions button#fr-sp-close{background:#3a3f4b}`;
@@ -1230,8 +1307,15 @@
       pluginSettings.create_new_performers = !!root.querySelector('#fr-create-new').checked;
       pluginSettings.max_suggestions = Math.min(10, Math.max(1, parseInt(root.querySelector('#fr-max-suggestions').value) || 3));
       pluginSettings.image_source = (root.querySelector('#fr-image-source').value || 'both').toLowerCase();
+      pluginSettings.metadata_source = (root.querySelector('#fr-metadata-source').value || 'stashdb').toLowerCase();
       pluginSettings.stashdb_endpoint = root.querySelector('#fr-stashdb-endpoint').value || 'https://stashdb.org/graphql';
+      pluginSettings.stashdb_api_key = (root.querySelector('#fr-stashdb-api-key').value || '').trim();
+      pluginSettings.tpdb_api_key = (root.querySelector('#fr-tpdb-api-key').value || '').trim();
+      pluginSettings.pmvstash_api_key = (root.querySelector('#fr-pmvstash-api-key').value || '').trim();
+      pluginSettings.fansdb_api_key = (root.querySelector('#fr-fansdb-api-key').value || '').trim();
       saveSettings();
+      // Push settings back to Stash backend (async, don't block)
+      saveSettingsToBackend().catch(err => console.warn('Backend-sync misslyckades:', err));
       notify('Inställningar sparade');
     } catch (e) { console.error('Kunde inte spara inställningar:', e); notify('Fel vid sparning av inställningar', true); }
   }
