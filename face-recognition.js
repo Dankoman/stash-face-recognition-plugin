@@ -417,7 +417,12 @@
     if (!normalized) return null;
     const params = {
       name: normalized,
-      stashdb_endpoint: pluginSettings.stashdb_endpoint || 'https://stashdb.org/graphql'
+      stashdb_endpoint: pluginSettings.stashdb_endpoint || 'https://stashdb.org/graphql',
+      source: pluginSettings.metadata_source || 'stashdb',
+      stashdb_api_key: pluginSettings.stashdb_api_key,
+      tpdb_api_key: pluginSettings.tpdb_api_key,
+      pmvstash_api_key: pluginSettings.pmvstash_api_key,
+      fansdb_api_key: pluginSettings.fansdb_api_key
     };
     if (Array.isArray(aliasCandidates) && aliasCandidates.length) {
       const extras = uniqueStrings(aliasCandidates.map(normalizeCandidateName)).filter(val => val && val !== normalized);
@@ -523,6 +528,21 @@
     if (canUse('weight')) {
       const w = parseIntegerLike(performer.weight);
       if (typeof w === 'number') input.weight = w;
+    }
+    if (canUse('career_start') && performer.career_start_year) {
+      input.career_start = String(performer.career_start_year);
+    }
+    if (canUse('career_end') && performer.career_end_year) {
+      input.career_end = String(performer.career_end_year);
+    }
+    if (canUse('tattoos') && Array.isArray(performer.tattoos) && performer.tattoos.length) {
+      input.tattoos = performer.tattoos.map(t => [t.location, t.description].filter(Boolean).join(': ')).join(', ');
+    }
+    if (canUse('piercings') && Array.isArray(performer.piercings) && performer.piercings.length) {
+      input.piercings = performer.piercings.map(p => [p.location, p.description].filter(Boolean).join(': ')).join(', ');
+    }
+    if (canUse('fake_tits') && performer.breast_type) {
+      input.fake_tits = performer.breast_type;
     }
 
     if (canUse('urls') || canUse('url')) {
@@ -653,6 +673,10 @@
       name: candidate,
       source: pluginSettings.image_source,
       stashdb_endpoint: pluginSettings.stashdb_endpoint,
+      stashdb_api_key: pluginSettings.stashdb_api_key,
+      tpdb_api_key: pluginSettings.tpdb_api_key,
+      pmvstash_api_key: pluginSettings.pmvstash_api_key,
+      fansdb_api_key: pluginSettings.fansdb_api_key,
       format: 'bytes'
     });
     if (apiInfo?.error || !apiInfo.href) return null;

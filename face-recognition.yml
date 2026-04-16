@@ -1,6 +1,6 @@
 name: Face Recognition Plugin
 description: Plugin för ansiktsigenkänning som kan pausa scener, extrahera bilder, visa bounding boxes med namn som overlay och lägga till identifierade personer till scenen
-version: 2.1.7
+version: 2.2.0
 url: https://github.com/Dankoman/face_extractor
 
 ui:
@@ -50,3 +50,24 @@ settings:
     displayName: Skapa nya performers
     description: Skapa nya performer-poster för okända ansikten
     type: BOOLEAN
+  metadata_source:
+    displayName: Metadatakälla
+    description: Välj primär källa för performer-metadata (stashdb, tpdb, pmvstash, fansdb)
+    type: STRING
+    default: stashdb
+  stashdb_api_key:
+    displayName: StashDB API Key
+    description: API-nyckel för stashdb.org
+    type: STRING
+  tpdb_api_key:
+    displayName: ThePornDB API Key
+    description: API-nyckel för theporndb.net
+    type: STRING
+  pmvstash_api_key:
+    displayName: PMVStash API Key
+    description: API-nyckel för pmvstash.org
+    type: STRING
+  fansdb_api_key:
+    displayName: FansDB API Key
+    description: API-nyckel för fansdb.cc
+    type: STRING
