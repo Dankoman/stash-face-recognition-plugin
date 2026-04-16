@@ -52,9 +52,8 @@ settings:
     type: BOOLEAN
   metadata_source:
     displayName: Metadatakälla
-    description: Välj primär källa för performer-metadata (stashdb, tpdb, pmvstash, fansdb)
+    description: Välj primär källa för performer-metadata (stashdb, tpdb, pmvstash, fansdb). Förvalt är stashdb.
     type: STRING
-    default: stashdb
   stashdb_api_key:
     displayName: StashDB API Key
     description: API-nyckel för stashdb.org
