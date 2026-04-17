@@ -12,7 +12,7 @@
     api_url: 'http://192.168.0.140:5000',
     api_timeout: 30,
     show_confidence: true,
-    min_confidence: 30,
+    min_confidence: 20,
     auto_add_performers: false,
     create_new_performers: false,
     max_suggestions: 3,
@@ -85,25 +85,40 @@
 
   async function mergePluginSettingsFromBackend() {
     try {
+      // Try the 'plugins' list endpoint (works across Stash versions)
       const query = `
-        query($name:String!){
-          plugin(name:$name){
+        query {
+          plugins {
             id
-            settings{ key value }
+            name
+            enabled
+            settings
           }
         }
       `;
-      const data = await stashGraphQL(query, { name: STASH_PLUGIN_NAME });
+      const data = await stashGraphQL(query, {});
+      const allPlugins = data?.plugins;
+      if (!Array.isArray(allPlugins)) return;
+      const myPlugin = allPlugins.find(p => p.name === STASH_PLUGIN_NAME || p.id === 'face-recognition');
+      if (!myPlugin) return;
       // Store plugin ID for write-back via configurePlugin
-      if (data?.plugin?.id) pluginId = data.plugin.id;
-      const rawSettings = data?.plugin?.settings;
-      if (!Array.isArray(rawSettings) || !rawSettings.length) return;
+      if (myPlugin.id) pluginId = myPlugin.id;
+      // Settings can be either {key,value}[] or a plain object depending on Stash version
+      const rawSettings = myPlugin.settings;
       const merged = {};
-      for (const entry of rawSettings) {
-        if (!entry || !entry.key) continue;
-        const coerced = coerceSettingValue(entry.key, entry.value);
-        if (coerced === undefined) continue;
-        merged[entry.key] = coerced;
+      if (Array.isArray(rawSettings)) {
+        for (const entry of rawSettings) {
+          if (!entry || !entry.key) continue;
+          const coerced = coerceSettingValue(entry.key, entry.value);
+          if (coerced === undefined) continue;
+          merged[entry.key] = coerced;
+        }
+      } else if (rawSettings && typeof rawSettings === 'object') {
+        for (const [key, value] of Object.entries(rawSettings)) {
+          const coerced = coerceSettingValue(key, value);
+          if (coerced === undefined) continue;
+          merged[key] = coerced;
+        }
       }
       if (Object.keys(merged).length) {
         pluginSettings = { ...pluginSettings, ...merged };
@@ -1921,20 +1936,9 @@
       } finally {
         if (timeoutHandle) clearTimeout(timeoutHandle);
       }
-    }
-    catch (e) {
-      console.error(e);
-      notify('Fel vid ansiktsigenkänning', true);
-
-      const to = setTimeout(() => ctrl.abort(), Math.max(3, pluginSettings.api_timeout) * 1000);
-      const apiBase = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
-      const url = `${apiBase.replace(/[/]$/, '')}/recognize?top_k=${pluginSettings.max_suggestions || 3}`;
-      const resp = await fetch(url, { method: 'POST', body: fd, signal: ctrl.signal });
-      clearTimeout(to);
-      if (!resp.ok) throw new Error(`API-fel ${resp.status}`);
-      const data = await resp.json();
-      renderRecognizeOverlay(Array.isArray(data) ? data : []);
-
+    } catch (e) {
+      console.error('Oväntat fel i performFaceRecognition:', e);
+      notify('Oväntat fel vid ansiktsigenkänning', true);
     }
   }
 
