@@ -550,19 +550,19 @@
     const heightSource = performer.height_cm ?? performer.height;
     if (canUse('height')) {
       const h = parseIntegerLike(heightSource);
-      if (typeof h === 'number') input.height = h;
+      if (typeof h === 'number' && h > 0) input.height = h;
     } else if (canUse('height_cm')) {
       const h = parseIntegerLike(heightSource);
-      if (typeof h === 'number') input.height_cm = h;
+      if (typeof h === 'number' && h > 0) input.height_cm = h;
     }
     if (canUse('weight')) {
       const w = parseIntegerLike(performer.weight);
-      if (typeof w === 'number') input.weight = w;
+      if (typeof w === 'number' && w > 0) input.weight = w;
     }
-    if (canUse('career_start') && performer.career_start_year) {
+    if (canUse('career_start') && performer.career_start_year && performer.career_start_year > 0) {
       input.career_start = String(performer.career_start_year);
     }
-    if (canUse('career_end') && performer.career_end_year) {
+    if (canUse('career_end') && performer.career_end_year && performer.career_end_year > 0) {
       input.career_end = String(performer.career_end_year);
     }
     if (canUse('tattoos') && Array.isArray(performer.tattoos) && performer.tattoos.length) {
@@ -1078,16 +1078,25 @@
     const baseInput = { ...extraInput, name: canonicalName };
     attempts.push(baseInput);
     if (Object.keys(extraInput || {}).length) {
-      attempts.push({ name: canonicalName });
+      // Fallback: preserve stash_ids but strip fields that might cause validation errors
+      const safeInput = { name: canonicalName };
+      if (extraInput.stash_ids) safeInput.stash_ids = extraInput.stash_ids;
+      if (extraInput.stash_id) safeInput.stash_id = extraInput.stash_id;
+      if (extraInput.aliases) safeInput.aliases = extraInput.aliases;
+      if (extraInput.alias_list) safeInput.alias_list = extraInput.alias_list;
+      if (extraInput.disambiguation) safeInput.disambiguation = extraInput.disambiguation;
+      attempts.push(safeInput);
     }
 
     let lastError = null;
     for (let idx = 0; idx < attempts.length; idx += 1) {
       const input = attempts[idx];
+      console.debug(`[FRP] performerCreate attempt ${idx + 1}/${attempts.length}`, JSON.stringify(input).slice(0, 500));
       try {
         const data = await stashGraphQL(mutation, { input });
         const created = data?.performerCreate || null;
         if (created) {
+          console.debug('[FRP] Performer created:', created.id, created.name);
           await tryAttachPerformerImage(created.id, canonicalName, imageStrategy, metadataForCreate);
           return created;
         }
