@@ -16,7 +16,7 @@
     auto_add_performers: false,
     create_new_performers: false,
     max_suggestions: 3,
-    image_source: 'stashdb', // local|stashdb|both (skickas till backend)
+    image_source: 'both', // local|stashdb|both (skickas till backend)
     stashdb_endpoint: 'https://stashdb.org/graphql',
     metadata_source: 'stashdb', // stashdb|tpdb|pmvstash|fansdb
     stashdb_api_key: '',
@@ -36,6 +36,7 @@
   }
   function saveSettings() {
     try { localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); } catch { }
+    imageCache.clear();
   }
 
   function parseBooleanSetting(value) {
@@ -1488,6 +1489,11 @@
       name,
       source: pluginSettings.image_source,
       stashdb_endpoint: pluginSettings.stashdb_endpoint,
+      stashdb_api_key: pluginSettings.stashdb_api_key,
+      tpdb_api_key: pluginSettings.tpdb_api_key,
+      pmvstash_api_key: pluginSettings.pmvstash_api_key,
+      fansdb_api_key: pluginSettings.fansdb_api_key,
+      metadata_source: pluginSettings.metadata_source,
       format: 'bytes'
     });
     if (info.error) {
