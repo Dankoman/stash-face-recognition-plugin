@@ -255,6 +255,8 @@
     if (performerSchemaCaps) return performerSchemaCaps;
     const query = `
       query PerformerInputCaps {
+        performerOutput: __type(name:"Performer") { fields { name } }
+        performerUpdate: __type(name:"PerformerUpdateInput") { inputFields { name } }
         performerInput: __type(name:"PerformerCreateInput") {
           inputFields { name type { kind name ofType { kind name ofType { kind name } } } }
         }
@@ -274,11 +276,16 @@
     try {
       const data = await stashGraphQL(query, {});
       const rawFields = Array.isArray(data?.performerInput?.inputFields) ? data.performerInput.inputFields : [];
+      if (!rawFields.some(field => field.name === 'name')) throw new Error('Ofullständigt importschema');
       const inputFields = new Map();
+      const listFields = new Set();
       rawFields.forEach(field => {
         if (!field?.name) return;
         const typeName = unwrapTypeName(field.type) || null;
         inputFields.set(field.name, typeName);
+        let node = field.type;
+        while (node?.kind === 'NON_NULL') node = node.ofType;
+        if (node?.kind === 'LIST') listFields.add(field.name);
       });
       const enums = {
         gender: new Set((data?.genderEnum?.enumValues || []).map(e => e?.name).filter(Boolean)),
@@ -286,20 +293,24 @@
         hair_color: new Set((data?.hairEnum?.enumValues || []).map(e => e?.name).filter(Boolean)),
         eye_color: new Set((data?.eyeEnum?.enumValues || []).map(e => e?.name).filter(Boolean)),
       };
-      performerSchemaCaps = { inputFields, enums };
+      performerSchemaCaps = { inputFields, listFields, enums,
+        outputFields: new Set((data?.performerOutput?.fields || []).map(f => f.name)),
+        updateFields: new Set((data?.performerUpdate?.inputFields || []).map(f => f.name)),
+      };
       if (!performerSchemaCaps.logged) {
         console.debug('PerformerCreateInput fields', Array.from(inputFields.entries()));
         performerSchemaCaps.logged = true;
       }
     } catch (err) {
       console.error('Kunde inte introspektera PerformerCreateInput', err);
-      performerSchemaCaps = { inputFields: new Map(), enums: { gender: new Set(), ethnicity: new Set(), hair_color: new Set(), eye_color: new Set() } };
+      throw new Error('Kunde inte läsa Stashs importschema. Försök igen.');
     }
     return performerSchemaCaps;
   }
 
   function mapEnumValue(rawValue, enumName, caps) {
     if (!rawValue) return undefined;
+    if (getInputFieldType(caps, enumName) === 'String') return String(rawValue).trim() || undefined;
     const enums = caps?.enums?.[enumName];
     if (!enums || !enums.size) return undefined;
     const normalized = String(rawValue).trim();
@@ -387,8 +398,7 @@
     }
     const apiInfo = buildApiUrl('stashdb/performer', params);
     if (apiInfo?.error) {
-      console.error('Ogiltig API-URL för stashdb/performer:', apiInfo.error);
-      return null;
+      throw apiInfo.error;
     }
     const ctrl = new AbortController();
     const timeoutMs = Math.max(3, pluginSettings.api_timeout || 0) * 1000;
@@ -397,23 +407,28 @@
       const resp = await fetch(apiInfo.href, { method: 'GET', signal: ctrl.signal });
       if (resp.status === 404) return null;
       if (!resp.ok) {
-        console.warn('stashdb/performer gav fel', resp.status);
-        return null;
+        throw new Error(`Metadata kunde inte hämtas (HTTP ${resp.status})`);
       }
       const data = await resp.json();
-      if (!data || !data.performer) return null;
+      if (!data || !data.performer) throw new Error('Metadata-API:t returnerade ett ogiltigt svar');
       return data;
     } catch (err) {
       if (err.name !== 'AbortError') {
         console.error('Fel vid hämtning av StashDB-metadata:', err);
       }
-      return null;
+      throw err;
     } finally {
       clearTimeout(handle);
     }
   }
 
-  async function buildPerformerCreateInput(normalizedName, aliasCandidates) {
+  function buildAliasesInput(aliases, caps) {
+    const field = canUseInputField(caps, 'alias_list') ? 'alias_list' : 'aliases';
+    if (!canUseInputField(caps, field) || !aliases.length) return {};
+    return { [field]: caps.listFields?.has(field) ? aliases : aliases.join(', ') };
+  }
+
+  async function buildPerformerCreateInput(normalizedName, aliasCandidates, { includeImage = true } = {}) {
     const caps = await ensurePerformerSchemaCaps();
     const canUse = field => canUseInputField(caps, field);
     const metadata = await fetchStashdbMetadata(normalizedName, aliasCandidates);
@@ -433,15 +448,7 @@
     const aliasesFromMetadata = Array.isArray(performer.aliases) ? performer.aliases.map(normalizeCandidateName) : [];
     const aliasesFromArgs = Array.isArray(aliasCandidates) ? aliasCandidates.map(normalizeCandidateName) : [];
     const aliasList = uniqueStrings([...aliasesFromMetadata, ...aliasesFromArgs]).filter(alias => alias && alias !== primaryNameForAliases);
-    const aliasFieldTypeRaw = getInputFieldType(caps, 'aliases');
-    const aliasListFieldTypeRaw = getInputFieldType(caps, 'alias_list');
-    const aliasWantsObject = isInputObjectType(aliasFieldTypeRaw);
-    const aliasListWantsObject = isInputObjectType(aliasListFieldTypeRaw);
-    if (canUse('aliases') && aliasList.length) {
-      input.aliases = aliasWantsObject ? aliasList : aliasList[0];
-    } else if (canUse('alias_list') && aliasList.length) {
-      input.alias_list = aliasListWantsObject ? aliasList : aliasList[0];
-    }
+    Object.assign(input, buildAliasesInput(aliasList, caps));
 
     if (canUse('gender')) {
       const genderValue = mapEnumValue(performer.gender, 'gender', caps);
@@ -498,6 +505,9 @@
     if (canUse('piercings') && Array.isArray(performer.piercings) && performer.piercings.length) {
       input.piercings = performer.piercings.map(p => [p.location, p.description].filter(Boolean).join(': ')).join(', ');
     }
+    for (const field of ['details', 'career_length', 'penis_length', 'circumcised']) {
+      if (canUse(field) && performer[field] !== undefined && performer[field] !== null && performer[field] !== '') input[field] = performer[field];
+    }
     if (canUse('fake_tits') && performer.breast_type) {
       input.fake_tits = performer.breast_type;
     }
@@ -514,9 +524,6 @@
           if (candidate) rawUrlEntries.push(candidate);
         }
       });
-      if (metadata.image_url) {
-        rawUrlEntries.push(metadata.image_url);
-      }
       const social = performer.social || {};
       [['instagram', 'https://instagram.com/'], ['twitter', 'https://twitter.com/'], ['tiktok', 'https://www.tiktok.com/@']].forEach(([key, prefix]) => {
         const value = social?.[key];
@@ -591,7 +598,7 @@
     if (performer.image_path) imageCandidates.push(performer.image_path);
     const primaryImageUrl = imageCandidates.find(url => typeof url === 'string' && url.trim());
     let imageStrategy = { mode: 'none', url: null };
-    if (primaryImageUrl) {
+    if (primaryImageUrl && includeImage) {
       const cleanUrl = String(primaryImageUrl).trim();
       const imageFieldTypeRaw = getInputFieldType(caps, 'image');
       if (canUse('image_url')) {
@@ -604,7 +611,11 @@
           input.image = { url: cleanUrl };
           imageStrategy = { mode: 'inline', url: cleanUrl };
         } else {
-          input.image = cleanUrl;
+          // Stash's String image input accepts a data URL. Download first so a
+          // remote image failure cannot trigger a metadata-free second create.
+          const blob = await fetchImageBlobForPerformer(canonicalName, cleanUrl, metadata);
+          if (!blob) throw new Error('Profilbilden kunde inte hämtas. Ingen ofullständig person skapades.');
+          input.image = await imageBlobToDataURL(blob);
           imageStrategy = { mode: 'inline', url: cleanUrl };
         }
       }
@@ -623,13 +634,13 @@
     return (normalized || fallback).slice(0, 80);
   }
 
-  async function fetchImageBlobViaApi(name) {
+  async function fetchImageBlobViaApi(name, metadata) {
     const candidate = normalizeCandidateName(name);
     if (!candidate) return null;
     const apiInfo = buildApiUrl('resolve_image', {
       name: candidate,
-      source: pluginSettings.image_source,
-      stashdb_endpoint: pluginSettings.stashdb_endpoint,
+      source: imageMetadataSource(metadata),
+      stashdb_endpoint: metadata?.source_endpoint || pluginSettings.stashdb_endpoint,
       format: 'bytes'
     });
     if (apiInfo?.error || !apiInfo.href) return null;
@@ -675,26 +686,31 @@
     }
   }
 
-  async function fetchImageBlobForPerformer(primaryName, fallbackUrl, metadata) {
-    const rawNames = [];
-    if (primaryName) rawNames.push(primaryName);
-    const metaName = metadata?.performer?.name;
-    if (metaName) rawNames.push(metaName);
-    const candidates = uniqueStrings(rawNames.map(normalizeCandidateName).filter(Boolean));
-    for (const candidate of candidates) {
-      const blob = await fetchImageBlobViaApi(candidate);
-      if (blob) return blob;
-    }
+  function imageMetadataSource(metadata) {
+    const endpoints = { 'stashdb.org': 'stashdb', 'theporndb.net': 'tpdb', 'pmvstash.org': 'pmvstash', 'fansdb.cc': 'fansdb' };
+    try { return endpoints[new URL(metadata.source_endpoint).hostname] || pluginSettings.metadata_source; }
+    catch { return pluginSettings.metadata_source; }
+  }
 
-    const rawUrls = [];
-    if (fallbackUrl) rawUrls.push(fallbackUrl);
-    if (metadata?.image_url) rawUrls.push(metadata.image_url);
-    if (metadata?.performer?.image_url) rawUrls.push(metadata.performer.image_url);
-    if (metadata?.performer?.image_path) rawUrls.push(metadata.performer.image_path);
-    const urlCandidates = uniqueStrings(rawUrls.map(url => url && String(url).trim()).filter(Boolean));
-    for (const url of urlCandidates) {
+  async function imageBlobToDataURL(blob) {
+    if (!blob?.size || !/^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) {
+      throw new Error('Bildkällan returnerade ingen giltig profilbild');
+    }
+    return `data:${blob.type};base64,${arrayBufferToBase64(await blob.arrayBuffer())}`;
+  }
+
+  async function fetchImageBlobForPerformer(primaryName, fallbackUrl, metadata) {
+    // Prefer the exact image from the matched metadata, not a local placeholder.
+    const urls = uniqueStrings([fallbackUrl, metadata?.image_url, metadata?.performer?.image_url, metadata?.performer?.image_path].filter(Boolean));
+    for (const url of urls) {
       const blob = await fetchImageBlobDirect(url);
-      if (blob) return blob;
+      if (blob?.size && /^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) return blob;
+    }
+    // Same-origin proxy is the fallback when the remote image blocks CORS.
+    const names = uniqueStrings([metadata?.performer?.name, primaryName].filter(Boolean));
+    for (const name of names) {
+      const blob = await fetchImageBlobViaApi(name, metadata);
+      if (blob?.size && /^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) return blob;
     }
     return null;
   }
@@ -740,10 +756,11 @@
     if (!imageStrategy || imageStrategy.mode !== 'upload') return;
     try {
       const blob = await fetchImageBlobForPerformer(canonicalName, imageStrategy.url, metadata);
-      if (!blob) return;
+      if (!blob) throw new Error('Profilbilden kunde inte hämtas');
       await uploadPerformerImageBlob(performerId, blob, canonicalName);
     } catch (err) {
       console.warn('Kunde inte bifoga performer-bild:', err);
+      notify(`Personen skapades, men profilbilden saknas: ${err.message}`, true);
     }
   }
 
@@ -953,126 +970,88 @@
     if (!pluginSettings.create_new_performers) return null;
     const normalized = normalizeCandidateName(name);
     if (!normalized) return null;
-
-    let caps = await ensurePerformerSchemaCaps();
-    let extraInput = {};
-    let canonicalName = normalized;
-    let metadataForCreate = null;
-    let imageStrategy = { mode: 'none', url: null };
+    const result = await buildPerformerCreateInput(normalized, aliasCandidates);
+    if (!result.metadata) throw new Error('Ingen extern metadata hittades. Personen skapades inte.');
+    const input = { ...result.input, name: result.canonicalName };
+    if (!input.aliases && !input.alias_list) {
+      Object.assign(input, buildAliasesInput(uniqueStrings([...(aliasCandidates || []), normalized])
+        .filter(alias => alias && alias !== input.name), result.caps));
+    }
     try {
-      const result = await buildPerformerCreateInput(normalized, aliasCandidates);
-      extraInput = result.input || {};
-      caps = result.caps || caps;
-      if (result?.canonicalName) {
-        const candidateName = normalizeCandidateName(result.canonicalName);
-        if (candidateName) canonicalName = candidateName;
+      const data = await stashGraphQL(`mutation($input: PerformerCreateInput!) {
+        performerCreate(input:$input) { id name }
+      }`, { input });
+      if (!data?.performerCreate) throw new Error('Stash returnerade ingen skapad person');
+      await tryAttachPerformerImage(data.performerCreate.id, result.canonicalName, result.imageStrategy, result.metadata);
+      return data.performerCreate;
+    } catch (error) {
+      if (/already exists/i.test(error?.message || '')) {
+        const details = error?.payload?.errors?.[0]?.extensions || {};
+        const existing = await resolveExistingPerformer(name, aliasCandidates, details, error.message);
+        if (existing) return completeExistingPerformer(existing, name, aliasCandidates);
       }
-      metadataForCreate = result.metadata || null;
-      if (result.imageStrategy) imageStrategy = result.imageStrategy;
-    } catch (err) {
-      console.error('Kunde inte bygga performerinput från StashDB-data:', err);
-      extraInput = {};
+      // Do not retry with just a name: that silently loses the requested metadata.
+      throw error;
     }
-
-    const combinedAliasCandidates = Array.isArray(aliasCandidates) ? [...aliasCandidates] : [];
-    if (name && !combinedAliasCandidates.includes(name)) combinedAliasCandidates.push(name);
-    if (canonicalName && !combinedAliasCandidates.includes(canonicalName)) combinedAliasCandidates.push(canonicalName);
-
-    const canUse = field => canUseInputField(caps, field);
-    if (!extraInput.aliases && !extraInput.alias_list && combinedAliasCandidates.length) {
-      const aliasList = uniqueStrings(combinedAliasCandidates.map(normalizeCandidateName)).filter(alias => alias && alias !== canonicalName);
-      if (aliasList.length) {
-        const aliasFieldTypeRaw = getInputFieldType(caps, 'aliases');
-        const aliasListFieldTypeRaw = getInputFieldType(caps, 'alias_list');
-        const aliasWantsObject = isInputObjectType(aliasFieldTypeRaw);
-        const aliasListWantsObject = isInputObjectType(aliasListFieldTypeRaw);
-        if (canUse('aliases')) extraInput.aliases = aliasWantsObject ? aliasList : aliasList[0];
-        else if (canUse('alias_list')) extraInput.alias_list = aliasListWantsObject ? aliasList : aliasList[0];
-      }
-    }
-
-    const mutation = `
-      mutation($input: PerformerCreateInput!){
-        performerCreate(input:$input){ id name }
-      }
-    `;
-
-    const attempts = [];
-    const baseInput = { ...extraInput, name: canonicalName };
-    attempts.push(baseInput);
-    if (Object.keys(extraInput || {}).length) {
-      // Fallback: preserve stash_ids but strip fields that might cause validation errors
-      const safeInput = { name: canonicalName };
-      if (extraInput.stash_ids) safeInput.stash_ids = extraInput.stash_ids;
-      if (extraInput.stash_id) safeInput.stash_id = extraInput.stash_id;
-      if (extraInput.aliases) safeInput.aliases = extraInput.aliases;
-      if (extraInput.alias_list) safeInput.alias_list = extraInput.alias_list;
-      if (extraInput.disambiguation) safeInput.disambiguation = extraInput.disambiguation;
-      attempts.push(safeInput);
-    }
-
-    let lastError = null;
-    for (let idx = 0; idx < attempts.length; idx += 1) {
-      const input = attempts[idx];
-      console.debug(`[FRP] performerCreate attempt ${idx + 1}/${attempts.length}`, JSON.stringify(input).slice(0, 500));
-      try {
-        const data = await stashGraphQL(mutation, { input });
-        const created = data?.performerCreate || null;
-        if (created) {
-          console.debug('[FRP] Performer created:', created.id, created.name);
-          await tryAttachPerformerImage(created.id, canonicalName, imageStrategy, metadataForCreate);
-          return created;
-        }
-      } catch (err) {
-        lastError = err;
-        const msg = String(err?.message || '');
-        if (/already exists/i.test(msg)) {
-          const payloadErr = err?.payload?.errors?.[0] || null;
-          const duplicateDetails = payloadErr?.extensions || {};
-          const existing = await resolveExistingPerformer(name, combinedAliasCandidates, duplicateDetails, payloadErr?.message || err?.message);
-          if (existing) return existing;
-          continue;
-        }
-        if (err?.status === 422) {
-          console.warn('PerformerCreate 422', err.payload || err.message || err);
-          if (idx < attempts.length - 1) {
-            console.warn('PerformerCreate misslyckades med metadata, försöker igen med minimal input');
-            continue;
-          }
-        }
-        throw err;
-      }
-    }
-
-    try {
-      const existingCanonical = await findPerformerByName(canonicalName);
-      if (existingCanonical) return existingCanonical;
-      if (canonicalName !== normalized) {
-        const existingNormalized = await findPerformerByName(normalized);
-        if (existingNormalized) return existingNormalized;
-      }
-    } catch (err) {
-      console.error('Misslyckades att hämta performer efter misslyckad skapning:', err);
-    }
-
-    if (lastError) {
-      const messages = [];
-      if (lastError?.message) messages.push(String(lastError.message));
-      const payloadErr = lastError?.payload?.errors?.[0] || null;
-      const payloadMsg = payloadErr?.message;
-      if (payloadMsg) messages.push(String(payloadMsg));
-      const combined = messages.join(' - ');
-      if (/already exists/i.test(combined)) {
-        const duplicateDetails = payloadErr?.extensions || {};
-        const existing = await resolveExistingPerformer(name, combinedAliasCandidates, duplicateDetails, payloadErr?.message || lastError?.message);
-        if (existing) return existing;
-      }
-      if (lastError?.payload) console.warn('PerformerCreate sista felpayload', lastError.payload);
-      throw lastError;
-    }
-    return null;
   }
 
+  function profileImageMissing(path) {
+    if (!path) return true;
+    try { return new URL(path, window.location.origin).searchParams.get('default') === 'true'; }
+    catch { return false; }
+  }
+
+  function mergeMissingPerformerData(current, imported, caps) {
+    const update = { id: String(current.id) };
+    for (const [key, value] of Object.entries(imported)) {
+      if (key === 'name' || !caps.updateFields.has(key)) continue;
+      const previous = current[key];
+      if (['alias_list', 'urls', 'stash_ids'].includes(key) && Array.isArray(value)) {
+        const signature = item => key === 'stash_ids' ? `${item.endpoint}:${item.stash_id}` : String(item).toLowerCase();
+        const merged = [...(Array.isArray(previous) ? previous : [])];
+        const seen = new Set(merged.map(signature));
+        for (const item of value) {
+          if (!seen.has(signature(item))) { merged.push(item); seen.add(signature(item)); }
+        }
+        if (merged.length !== (previous || []).length) update[key] = merged;
+      } else if (previous === undefined || previous === null || previous === '' || previous === 0) {
+        update[key] = value;
+      }
+    }
+    return update;
+  }
+
+  async function completeExistingPerformer(performer, name, aliases) {
+    const result = await buildPerformerCreateInput(name, aliases, { includeImage: false });
+    if (!result.metadata) return performer;
+    const { caps, input, metadata, canonicalName } = result;
+    const fields = Object.keys(input).filter(key => caps.outputFields.has(key) && caps.updateFields.has(key));
+    const selection = uniqueStrings(['id', 'name', 'image_path', 'stash_ids', ...fields])
+      .filter(key => caps.outputFields.has(key))
+      .map(key => key === 'stash_ids' ? 'stash_ids { endpoint stash_id }' : key).join(' ');
+    if (!selection) return performer;
+    const data = await stashGraphQL(`query($id:ID!){findPerformer(id:$id){${selection}}}`, { id: String(performer.id) });
+    const current = data?.findPerformer;
+    if (!current) return performer;
+    // Enrich only an existing record linked to this exact external identity.
+    // An identical name by itself is not enough to overwrite or merge profiles.
+    const sameEndpoint = (a, b) => String(a || '').replace(/\/+$/, '') === String(b || '').replace(/\/+$/, '');
+    const linked = (current.stash_ids || []).some(local => (input.stash_ids || []).some(remote =>
+      local.stash_id === remote.stash_id && sameEndpoint(local.endpoint, remote.endpoint)));
+    if (!linked) return performer;
+    const update = mergeMissingPerformerData(current, input, caps);
+    const imageURL = metadata.image_url || metadata.performer?.image_url || metadata.performer?.image_path;
+    if (imageURL && caps.updateFields.has('image') && getInputFieldType(caps, 'image') === 'String' && profileImageMissing(current.image_path)) {
+      const blob = await fetchImageBlobForPerformer(canonicalName, imageURL, metadata);
+      if (!blob) throw new Error('Profilbilden kunde inte hämtas. Försök igen.');
+      update.image = await imageBlobToDataURL(blob);
+    }
+    if (Object.keys(update).length > 1) {
+      await stashGraphQL(`mutation($input:PerformerUpdateInput!){performerUpdate(input:$input){id}}`, { input: update });
+      notify('Kompletterade saknad profilbild och metadata');
+    }
+    return performer;
+  }
 
   async function addPerformerToSceneByName(name) {
     const sceneId = getCurrentSceneId();
@@ -1080,6 +1059,7 @@
 
     const aliasCandidates = generateAliasCandidates(name);
     let perf = await findPerformerByName(name);
+    if (perf) perf = await completeExistingPerformer(perf, name, aliasCandidates);
     if (!perf) {
       try {
         perf = await createPerformerIfAllowed(name, aliasCandidates);

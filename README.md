@@ -1,4 +1,4 @@
-# Face Recognition Plugin 2.4
+# Face Recognition Plugin 2.4.1
 
 Plugin för Stash med analys av den aktuella videobilden, förslag i bildöverlägg och möjlighet att lägga till en vald performer i scenen.
 
@@ -26,6 +26,14 @@ API-nycklar finns endast på API-servern. Pluginet lagrar eller skickar inga met
 
 Se [INSTALLATION.md](INSTALLATION.md). Paketet består av `face-recognition.js`, `face-recognition.css` och `face-recognition.yml`. `index.yml` innehåller version och SHA-256 för ZIP-arkivet.
 
+## Ändringar i 2.4.1
+
+- Profilbilden hämtas före skapandet och skickas som bilddata till Stash. Om bildhämtningen misslyckas skapas ingen ofullständig post.
+- Alla alias följer med. Strängfält för exempelvis etnicitet och hår-/ögonfärg hanteras enligt Stashs faktiska schema.
+- Födelse-/dödsdatum, land, mått, längd, vikt, karriär, tatueringar, piercingar, länkar och externa ID:n importeras när källan tillhandahåller dem och Stash stöder fälten.
+- Misslyckad metadataimport försöker inte längre skapa en person med enbart namn.
+- När en befintlig person väljs igen kompletteras saknade fält och profilbild, förutsatt att samma externa ID redan är kopplat. Ifyllda värden och egna bilder bevaras; alias och länkar slås ihop. Ingen massändring av biblioteket görs.
+
 ## Ändringar i 2.4
 
 - Samma adress och inloggning som Stash via `/face-api`.
@@ -42,6 +50,7 @@ Se [INSTALLATION.md](INSTALLATION.md). Paketet består av `face-recognition.js`,
 node --check face-recognition.js
 node tests/settings.test.cjs
 node tests/recognition-ui.test.cjs
+node tests/performer-import.test.cjs
 ```
 
 Testerna använder syntetisk media och ett simulerat API. De kontrollerar inställningar, sparfel, URL-hantering, samlade DOM-uppdateringar, dubbelklick, tomma svar och nätverksfel.
