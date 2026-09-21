@@ -2,14 +2,14 @@
 // + Klick på förslag = lägg till performer i aktuell scen via Stash GraphQL
 
 (function () {
-  const LS_KEY = 'face_recognition_plugin_settings';
+  const LEGACY_LS_KEY = 'face_recognition_plugin_settings';
   const imageCache = new Map(); // name -> { href, objectUrl } | null
 
   const STASH_PLUGIN_NAME = 'Face Recognition Plugin';
   let pluginId = null; // Stash internal plugin ID, resolved at runtime
 
-  let pluginSettings = {
-    api_url: 'http://192.168.0.140:5000',
+  const DEFAULT_SETTINGS = Object.freeze({
+    api_url: '/face-api',
     api_timeout: 30,
     show_confidence: true,
     min_confidence: 20,
@@ -19,25 +19,11 @@
     image_source: 'both', // local|stashdb|both (skickas till backend)
     stashdb_endpoint: 'https://stashdb.org/graphql',
     metadata_source: 'stashdb', // stashdb|tpdb|pmvstash|fansdb
-    stashdb_api_key: '',
-    tpdb_api_key: '',
-    pmvstash_api_key: '',
-    fansdb_api_key: '',
-  };
+  });
+  let pluginSettings = { ...DEFAULT_SETTINGS };
 
   let overlayClearTimer = null;
-
-  function loadSettings() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) pluginSettings = { ...pluginSettings, ...JSON.parse(raw) };
-      pluginSettings.api_url = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
-    } catch { }
-  }
-  function saveSettings() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(pluginSettings)); } catch { }
-    imageCache.clear();
-  }
+  let recognitionInFlight = false;
 
   function parseBooleanSetting(value) {
     if (value === undefined || value === null) return undefined;
@@ -71,10 +57,8 @@
       case 'stashdb_api_key':
       case 'tpdb_api_key':
       case 'pmvstash_api_key':
-      case 'fansdb_api_key': {
-        const text = String(value).trim();
-        return text ? text : undefined;
-      }
+      case 'fansdb_api_key':
+        return undefined; // Credentials belong to the API service, never the browser.
       case 'show_confidence':
       case 'auto_add_performers':
       case 'create_new_performers':
@@ -86,14 +70,15 @@
 
   async function mergePluginSettingsFromBackend() {
     try {
-      // Try the 'plugins' list endpoint (works across Stash versions)
+      // plugins.settings describes the controls; saved values live in configuration.plugins.
       const query = `
         query {
           plugins {
             id
             name
-            enabled
-            settings
+          }
+          configuration {
+            plugins
           }
         }
       `;
@@ -104,28 +89,19 @@
       if (!myPlugin) return;
       // Store plugin ID for write-back via configurePlugin
       if (myPlugin.id) pluginId = myPlugin.id;
-      // Settings can be either {key,value}[] or a plain object depending on Stash version
-      const rawSettings = myPlugin.settings;
+      const rawSettings = data?.configuration?.plugins?.[myPlugin.id];
       const merged = {};
-      if (Array.isArray(rawSettings)) {
-        for (const entry of rawSettings) {
-          if (!entry || !entry.key) continue;
-          const coerced = coerceSettingValue(entry.key, entry.value);
-          if (coerced === undefined) continue;
-          merged[entry.key] = coerced;
-        }
-      } else if (rawSettings && typeof rawSettings === 'object') {
+      if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
         for (const [key, value] of Object.entries(rawSettings)) {
           const coerced = coerceSettingValue(key, value);
           if (coerced === undefined) continue;
           merged[key] = coerced;
         }
       }
-      if (Object.keys(merged).length) {
-        pluginSettings = { ...pluginSettings, ...merged };
-        pluginSettings.api_url = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
-        saveSettings();
-      }
+      pluginSettings = { ...DEFAULT_SETTINGS, ...merged };
+      pluginSettings.api_url = normalizeApiBaseUrl(pluginSettings.api_url) || DEFAULT_SETTINGS.api_url;
+      // Only remove the legacy cache after the authoritative settings loaded successfully.
+      try { localStorage.removeItem(LEGACY_LS_KEY); } catch { }
     } catch (err) {
       console.warn('Kunde inte läsa plugin-inställningar:', err);
     }
@@ -157,23 +133,23 @@
         try { URL.revokeObjectURL(prevHref); } catch (_) { }
       }
     }
+    imageCache.delete(name);
     imageCache.set(name, entry ?? null);
+    while (imageCache.size > 64) {
+      const oldest = imageCache.keys().next().value;
+      const old = imageCache.get(oldest);
+      if (old?.objectUrl && old.href?.startsWith('blob:')) URL.revokeObjectURL(old.href);
+      imageCache.delete(oldest);
+    }
   }
 
-  if (!window.__frpPreviewCacheCleanup) {
-    window.__frpPreviewCacheCleanup = true;
-    window.addEventListener('beforeunload', () => {
-      imageCache.forEach(entry => {
-        if (entry && entry.objectUrl) {
-          const href = typeof entry.href === 'string' ? entry.href : null;
-          if (href && href.startsWith('blob:')) {
-            try { URL.revokeObjectURL(href); } catch (_) { }
-          }
-        }
-      });
-      imageCache.clear();
-    });
+  function clearImageCache() {
+    for (const entry of imageCache.values()) {
+      if (entry?.objectUrl && entry.href?.startsWith('blob:')) URL.revokeObjectURL(entry.href);
+    }
+    imageCache.clear();
   }
+  window.addEventListener('beforeunload', clearImageCache, { once: true });
 
   function normalizeCandidateName(value) {
     if (value === undefined || value === null) return '';
@@ -368,79 +344,33 @@
   }
 
   function normalizeApiBaseUrl(value) {
-    const trimmed = (value || '').toString().trim();
-    if (!trimmed) return '';
-
-    let candidate = trimmed
-      .replace(/\\/g, '/')
-      .replace(/\s+/g, '')
-      .replace(/\.+$/, '');
-
-    if (/^([a-z][a-z0-9+.-]*:\/)([^/])/i.test(candidate)) {
-      candidate = candidate.replace(/^([a-z][a-z0-9+.-]*:\/)([^/])/i, '$1/$2');
+    const text = String(value || '').trim().replace(/\/+$/, '');
+    if (!text) return '';
+    if (text.startsWith('/') && !text.startsWith('//') && !/[\\?#\s]/.test(text)) return text;
+    const url = new URL(text);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      throw new Error('API-URL måste vara /face-api eller en HTTP(S)-adress utan inloggningsuppgifter');
     }
-
-    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
-      candidate = `http://${candidate.replace(/^\/+/, '')}`;
-    }
-
-    try {
-      const url = new URL(candidate);
-      const cleanPath = url.pathname.replace(/\/+$/, '');
-      return `${url.origin}${cleanPath === '/' ? '' : cleanPath}`;
-    } catch (_) {
-      return candidate.replace(/\/+$/, '');
-    }
+    return url.origin + url.pathname.replace(/\/+$/, '');
   }
 
   function buildApiUrl(pathname = '', params) {
-    const normalized = normalizeApiBaseUrl(pluginSettings.api_url) || pluginSettings.api_url;
-    if (!normalized) return { href: '', error: new Error('API-URL saknas'), raw: '' };
-
-    let original;
     try {
-      original = new URL(normalized);
-    } catch (err) {
-      return { href: '', error: err, raw: normalized };
-    }
-
-    const info = {
-      href: '',
-      raw: normalized,
-      error: null,
-      upgraded: false,
-      originalProtocol: original.protocol,
-      attemptedProtocol: original.protocol
-    };
-
-    const target = new URL(original.toString());
-    if (window.location.protocol === 'https:' && target.protocol === 'http:') {
-      target.protocol = 'https:';
-      info.upgraded = true;
-      info.attemptedProtocol = 'https:';
-    }
-
-    const basePath = target.pathname.replace(/\/+$/, '');
-    const append = pathname ? `${pathname.startsWith('/') ? '' : '/'}${pathname}` : '';
-    target.pathname = `${basePath}${append}` || '/';
-    target.search = '';
-
-    if (params && typeof params === 'object') {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value === undefined || value === null) return;
-        if (Array.isArray(value)) {
-          value.forEach(v => {
-            if (v === undefined || v === null) return;
-            target.searchParams.append(key, String(v));
-          });
-        } else {
-          target.searchParams.set(key, String(value));
+      const base = normalizeApiBaseUrl(pluginSettings.api_url);
+      if (!base) throw new Error('API-URL saknas');
+      const target = new URL(base + '/' + pathname.replace(/^\/+/, ''), window.location.origin);
+      if (window.location.protocol === 'https:' && target.protocol === 'http:') {
+        throw new Error('Använd /face-api eller en HTTPS-adress när Stash körs över HTTPS');
+      }
+      for (const [key, value] of Object.entries(params || {})) {
+        for (const item of Array.isArray(value) ? value : [value]) {
+          if (item !== undefined && item !== null) target.searchParams.append(key, String(item));
         }
-      });
+      }
+      return { href: target.href, error: null };
+    } catch (error) {
+      return { href: '', error };
     }
-
-    info.href = target.toString();
-    return info;
   }
 
   async function fetchStashdbMetadata(name, aliasCandidates) {
@@ -450,10 +380,6 @@
       name: normalized,
       stashdb_endpoint: pluginSettings.stashdb_endpoint || 'https://stashdb.org/graphql',
       source: pluginSettings.metadata_source || 'stashdb',
-      stashdb_api_key: pluginSettings.stashdb_api_key,
-      tpdb_api_key: pluginSettings.tpdb_api_key,
-      pmvstash_api_key: pluginSettings.pmvstash_api_key,
-      fansdb_api_key: pluginSettings.fansdb_api_key
     };
     if (Array.isArray(aliasCandidates) && aliasCandidates.length) {
       const extras = uniqueStrings(aliasCandidates.map(normalizeCandidateName)).filter(val => val && val !== normalized);
@@ -704,10 +630,6 @@
       name: candidate,
       source: pluginSettings.image_source,
       stashdb_endpoint: pluginSettings.stashdb_endpoint,
-      stashdb_api_key: pluginSettings.stashdb_api_key,
-      tpdb_api_key: pluginSettings.tpdb_api_key,
-      pmvstash_api_key: pluginSettings.pmvstash_api_key,
-      fansdb_api_key: pluginSettings.fansdb_api_key,
       format: 'bytes'
     });
     if (apiInfo?.error || !apiInfo.href) return null;
@@ -1197,43 +1119,15 @@
     notify(`La till "${perf.name}" i scenen`);
   }
 
-  // ---------------- Two-way sync: push settings to Stash backend ----------------
-  async function saveSettingsToBackend() {
-    if (!pluginId) {
-      console.warn('Plugin-ID okänt, kan inte synka tillbaka till Stash');
-      return;
-    }
-    try {
-      const mutation = `
-        mutation ConfigurePlugin($plugin_id: ID!, $input: Map!) {
-          configurePlugin(plugin_id: $plugin_id, input: $input)
-        }
-      `;
-      // Build a plain object with all settings
-      const input = {};
-      const stringKeys = ['api_url', 'stashdb_endpoint', 'image_source', 'metadata_source',
-                          'stashdb_api_key', 'tpdb_api_key', 'pmvstash_api_key', 'fansdb_api_key'];
-      const numberKeys = ['api_timeout', 'min_confidence', 'max_suggestions'];
-      const boolKeys = ['show_confidence', 'auto_add_performers', 'create_new_performers'];
-      for (const key of stringKeys) {
-        if (pluginSettings[key] !== undefined && pluginSettings[key] !== null && pluginSettings[key] !== '') {
-          input[key] = String(pluginSettings[key]);
-        }
-      }
-      for (const key of numberKeys) {
-        if (pluginSettings[key] !== undefined && pluginSettings[key] !== null) {
-          input[key] = pluginSettings[key];
-        }
-      }
-      for (const key of boolKeys) {
-        if (pluginSettings[key] !== undefined && pluginSettings[key] !== null) {
-          input[key] = pluginSettings[key];
-        }
-      }
-      await stashGraphQL(mutation, { plugin_id: pluginId, input });
-    } catch (err) {
-      console.warn('Kunde inte spara inställningar till Stash:', err);
-    }
+  // Stash is the single source of truth; commit local state only after a successful save.
+  async function saveSettingsToBackend(settings) {
+    if (!pluginId) throw new Error('Plugin-inställningarna har inte laddats. Ladda om sidan.');
+    const input = Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(key => [key, settings[key]]));
+    await stashGraphQL(`mutation ConfigurePlugin($plugin_id: ID!, $input: Map!) {
+      configurePlugin(plugin_id: $plugin_id, input: $input)
+    }`, { plugin_id: pluginId, input });
+    pluginSettings = { ...settings };
+    clearImageCache();
   }
 
   // ---------------- Settings panel (högerklick) ----------------
@@ -1284,22 +1178,10 @@
         <label>StashDB endpoint:</label>
         <input type="text" id="fr-stashdb-endpoint" value="${escapeAttr(pluginSettings.stashdb_endpoint)}">
 
-        <hr style="margin:12px 0;border-color:#3a3a3a;">
-        <div style="font-size:11px;color:#7a7f8c;margin-bottom:6px">API-nycklar (valfritt, skickas till backend)</div>
-
-        <label>StashDB API Key:</label>
-        <input type="text" id="fr-stashdb-api-key" value="${escapeAttr(pluginSettings.stashdb_api_key)}" placeholder="hanteras via backend .env om tomt">
-
-        <label>ThePornDB API Key:</label>
-        <input type="text" id="fr-tpdb-api-key" value="${escapeAttr(pluginSettings.tpdb_api_key)}" placeholder="hanteras via backend .env om tomt">
-
-        <label>PMVStash API Key:</label>
-        <input type="text" id="fr-pmvstash-api-key" value="${escapeAttr(pluginSettings.pmvstash_api_key)}" placeholder="hanteras via backend .env om tomt">
-
-        <label>FansDB API Key:</label>
-        <input type="text" id="fr-fansdb-api-key" value="${escapeAttr(pluginSettings.fansdb_api_key)}" placeholder="hanteras via backend .env om tomt">
+        <p>API-nycklar hanteras av API-tjänsten på servern.</p>
 
         <div class="fr-sp-actions">
+          <button type="button" id="fr-sp-test">Testa anslutning</button>
           <button type="button" id="fr-sp-save">Spara</button>
           <button type="button" id="fr-sp-close">Stäng</button>
         </div>
@@ -1319,30 +1201,63 @@
     wrap.appendChild(style);
     document.body.appendChild(wrap);
     wrap.querySelector('#fr-sp-close').addEventListener('click', () => wrap.remove());
-    wrap.querySelector('#fr-sp-save').addEventListener('click', () => { saveSettingsFromPanel(wrap); wrap.remove(); });
+    wrap.querySelector('#fr-sp-test').addEventListener('click', async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000);
+      try {
+        const info = buildApiUrl('api/health');
+        if (info.error) throw info.error;
+        const response = await fetch(info.href, { signal: ctrl.signal });
+        if (!response.ok) throw new Error(`API-fel ${response.status}`);
+        const health = await response.json();
+        if (!health.model_loaded) throw new Error('Modellen är inte laddad');
+        notify(`Anslutningen fungerar. API ${health.version}, modellen är laddad.`);
+      } catch (error) {
+        notify(`Anslutningstest misslyckades: ${error.message}`, true);
+      } finally {
+        clearTimeout(timer);
+        button.disabled = false;
+      }
+    });
+    wrap.querySelector('#fr-sp-save').addEventListener('click', () => saveSettingsFromPanel(wrap));
   }
-  function saveSettingsFromPanel(root) {
+  async function saveSettingsFromPanel(root) {
+    const button = root.querySelector('#fr-sp-save');
+    if (button.disabled) return;
+    button.disabled = true;
     try {
-      const prevApiUrl = pluginSettings.api_url;
-      pluginSettings.api_url = normalizeApiBaseUrl(root.querySelector('#fr-api-url').value) || prevApiUrl;
-      pluginSettings.api_timeout = parseInt(root.querySelector('#fr-api-timeout').value) || pluginSettings.api_timeout;
-      pluginSettings.show_confidence = !!root.querySelector('#fr-show-confidence').checked;
-      pluginSettings.min_confidence = Math.min(100, Math.max(0, parseInt(root.querySelector('#fr-min-confidence').value) || 0));
-      pluginSettings.auto_add_performers = !!root.querySelector('#fr-auto-add').checked;
-      pluginSettings.create_new_performers = !!root.querySelector('#fr-create-new').checked;
-      pluginSettings.max_suggestions = Math.min(10, Math.max(1, parseInt(root.querySelector('#fr-max-suggestions').value) || 3));
-      pluginSettings.image_source = (root.querySelector('#fr-image-source').value || 'both').toLowerCase();
-      pluginSettings.metadata_source = (root.querySelector('#fr-metadata-source').value || 'stashdb').toLowerCase();
-      pluginSettings.stashdb_endpoint = root.querySelector('#fr-stashdb-endpoint').value || 'https://stashdb.org/graphql';
-      pluginSettings.stashdb_api_key = (root.querySelector('#fr-stashdb-api-key').value || '').trim();
-      pluginSettings.tpdb_api_key = (root.querySelector('#fr-tpdb-api-key').value || '').trim();
-      pluginSettings.pmvstash_api_key = (root.querySelector('#fr-pmvstash-api-key').value || '').trim();
-      pluginSettings.fansdb_api_key = (root.querySelector('#fr-fansdb-api-key').value || '').trim();
-      saveSettings();
-      // Push settings back to Stash backend (async, don't block)
-      saveSettingsToBackend().catch(err => console.warn('Backend-sync misslyckades:', err));
+      const value = id => root.querySelector(id).value;
+      const checked = id => !!root.querySelector(id).checked;
+      const bounded = (id, min, max, fallback) => {
+        const parsed = parseInt(value(id), 10);
+        return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+      };
+      const settings = {
+        ...pluginSettings,
+        api_url: normalizeApiBaseUrl(value('#fr-api-url')) || DEFAULT_SETTINGS.api_url,
+        api_timeout: bounded('#fr-api-timeout', 1, 120, 30),
+        show_confidence: checked('#fr-show-confidence'),
+        min_confidence: bounded('#fr-min-confidence', 0, 100, 20),
+        auto_add_performers: checked('#fr-auto-add'),
+        create_new_performers: checked('#fr-create-new'),
+        max_suggestions: bounded('#fr-max-suggestions', 1, 10, 3),
+        image_source: value('#fr-image-source').trim().toLowerCase(),
+        metadata_source: value('#fr-metadata-source').trim().toLowerCase(),
+        stashdb_endpoint: value('#fr-stashdb-endpoint').trim() || DEFAULT_SETTINGS.stashdb_endpoint,
+      };
+      if (!['local', 'stashdb', 'both'].includes(settings.image_source)) throw new Error('Ogiltig bildkälla');
+      if (!['stashdb', 'tpdb', 'pmvstash', 'fansdb'].includes(settings.metadata_source)) throw new Error('Ogiltig metadatakälla');
+      await saveSettingsToBackend(settings);
       notify('Inställningar sparade');
-    } catch (e) { console.error('Kunde inte spara inställningar:', e); notify('Fel vid sparning av inställningar', true); }
+      root.remove();
+    } catch (error) {
+      console.error('Kunde inte spara inställningar:', error);
+      notify(`Kunde inte spara: ${error.message}`, true);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   // ---------------- Hjälpare för video/overlay ----------------
@@ -1489,10 +1404,6 @@
       name,
       source: pluginSettings.image_source,
       stashdb_endpoint: pluginSettings.stashdb_endpoint,
-      stashdb_api_key: pluginSettings.stashdb_api_key,
-      tpdb_api_key: pluginSettings.tpdb_api_key,
-      pmvstash_api_key: pluginSettings.pmvstash_api_key,
-      fansdb_api_key: pluginSettings.fansdb_api_key,
       metadata_source: pluginSettings.metadata_source,
       format: 'bytes'
     });
@@ -1803,13 +1714,24 @@
   }
 
   // ---------------- UI-knapp ----------------
+  function updateRecognitionButton(btn) {
+    btn.disabled = recognitionInFlight;
+    btn.setAttribute('aria-busy', String(recognitionInFlight));
+    btn.setAttribute('aria-label', recognitionInFlight ? 'Analyserar bildruta' : 'Identifiera ansikten');
+    const label = btn.querySelector('.frp-fab-text');
+    if (label) label.textContent = recognitionInFlight ? 'Analyserar…' : 'Identifiera';
+  }
+  function setRecognitionBusy(busy) {
+    recognitionInFlight = busy;
+    document.querySelectorAll('.frp-fab').forEach(updateRecognitionButton);
+  }
   function createPluginButton() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'frp-fab';
     btn.innerHTML = `<span class="frp-fab-icon" aria-hidden="true">👁</span><span class="frp-fab-text">Identifiera</span>`;
     btn.title = 'Identifiera ansikten (vänsterklick) — Inställningar (högerklick)';
-    btn.setAttribute('aria-label', 'Identifiera ansikten');
+    updateRecognitionButton(btn);
     btn.addEventListener('click', performFaceRecognition);
     btn.addEventListener('contextmenu', e => { e.preventDefault(); createSettingsPanel(); });
     return btn;
@@ -1905,9 +1827,13 @@
 
   // ---------------- Huvudflöde ----------------
   async function performFaceRecognition() {
+    if (recognitionInFlight) return;
     try {
       const video = findVideoElement(); if (!video) return notify('Ingen video hittad', true);
-      if (!video.videoWidth || !video.videoHeight) return notify('Video ej redo', true);
+      if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+        return notify('Video ej redo. Starta videon och pausa på en bildruta först.', true);
+      }
+      setRecognitionBusy(true);
 
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth; canvas.height = video.videoHeight;
@@ -1925,28 +1851,26 @@
       let apiInfo = null;
       try {
         timeoutHandle = setTimeout(() => ctrl.abort(), timeoutMs);
-        apiInfo = buildApiUrl('recognize', { top_k: pluginSettings.max_suggestions || 3 });
+        // Request every detected face; the plugin applies its own confidence filter.
+        // The API's default gender filter can otherwise silently discard all results.
+        apiInfo = buildApiUrl('recognize', { top_k: pluginSettings.max_suggestions || 3, raw_faces: 1 });
         if (apiInfo?.error) {
           console.error('Ogiltig API-URL:', apiInfo.error);
-          notify('Ogiltig API-URL, uppdatera inställningarna', true);
+          notify(apiInfo.error.message, true);
           return;
-        }
-        if (apiInfo?.upgraded) {
-          console.warn(`face-recognition: uppgraderar API-URL till HTTPS (${apiInfo.raw})`);
         }
         const resp = await fetch(apiInfo.href, { method: 'POST', body: fd, signal: ctrl.signal });
         if (!resp.ok) throw new Error(`API-fel ${resp.status}`);
         const data = await resp.json();
-        renderRecognizeOverlay(Array.isArray(data) ? data : []);
+        if (!Array.isArray(data)) throw new Error('API:t returnerade ett ogiltigt svar');
+        renderRecognizeOverlay(data);
+        if (!data.length) notify('Inga ansikten hittades i bildrutan. Prova en annan bildruta.');
       } catch (err) {
         if (err.name === 'AbortError') {
           notify('API-timeout uppnådd', true);
-        } else if (apiInfo?.upgraded && window.location.protocol === 'https:') {
-          console.error(err);
-          notify('Kunde inte kontakta face_extractor via HTTPS. Aktivera HTTPS på API:t eller öppna Stash via HTTP.', true);
         } else {
           console.error(err);
-          notify('Fel vid ansiktsigenkänning', true);
+          notify(`Fel vid ansiktsigenkänning: ${err.message || err}`, true);
         }
       } finally {
         if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -1954,23 +1878,34 @@
     } catch (e) {
       console.error('Oväntat fel i performFaceRecognition:', e);
       notify('Oväntat fel vid ansiktsigenkänning', true);
+    } finally {
+      setRecognitionBusy(false);
     }
   }
 
+  function observePlayerMounts() {
+    let pending = null;
+    const selector = 'video, .video-js, .scene-tabs, .scene-info, .scene-info-panel, .scene-details-panel, [data-testid="scene-details-panel"], .SceneDetails, .SceneInfoPanel, .frp-fab';
+    const relevant = node => node.nodeType === 1 &&
+      (node.matches(selector) || !!node.querySelector(selector));
+    const schedule = () => {
+      if (pending !== null) return;
+      pending = setTimeout(() => { pending = null; addPluginButton(); }, 100);
+    };
+    const observer = new MutationObserver(records => {
+      if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(relevant))) schedule();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    addPluginButton();
+  }
+
   async function init() {
-    loadSettings();
     await mergePluginSettingsFromBackend();
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addPluginButton);
-    else addPluginButton();
-
-    const mo = new MutationObserver(() => setTimeout(addPluginButton, 600));
-    mo.observe(document.body, { childList: true, subtree: true });
-
-    let tries = 0;
-    const iv = setInterval(() => {
-      try { addPluginButton(); } catch { }
-      if (findVideoElement() || ++tries > 20) clearInterval(iv);
-    }, 1000);
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', observePlayerMounts, { once: true });
+    } else {
+      observePlayerMounts();
+    }
   }
 
   init().catch(e => console.error('Initfel:', e));
