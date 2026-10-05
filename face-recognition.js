@@ -971,9 +971,11 @@
     const normalized = normalizeCandidateName(name);
     if (!normalized) return null;
     const result = await buildPerformerCreateInput(normalized, aliasCandidates);
-    if (!result.metadata) throw new Error('Ingen extern metadata hittades. Personen skapades inte.');
-    const input = { ...result.input, name: result.canonicalName };
-    if (!input.aliases && !input.alias_list) {
+    // A missing external match is valid: the detected name can stand on its own.
+    const input = result.metadata
+      ? { ...result.input, name: result.canonicalName }
+      : { name: normalized };
+    if (result.metadata && !input.aliases && !input.alias_list) {
       Object.assign(input, buildAliasesInput(uniqueStrings([...(aliasCandidates || []), normalized])
         .filter(alias => alias && alias !== input.name), result.caps));
     }
@@ -982,7 +984,9 @@
         performerCreate(input:$input) { id name }
       }`, { input });
       if (!data?.performerCreate) throw new Error('Stash returnerade ingen skapad person');
-      await tryAttachPerformerImage(data.performerCreate.id, result.canonicalName, result.imageStrategy, result.metadata);
+      if (result.metadata) {
+        await tryAttachPerformerImage(data.performerCreate.id, result.canonicalName, result.imageStrategy, result.metadata);
+      }
       return data.performerCreate;
     } catch (error) {
       if (/already exists/i.test(error?.message || '')) {

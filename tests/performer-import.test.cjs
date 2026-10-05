@@ -57,8 +57,8 @@ test('an unavailable image cannot create an incomplete performer',async()=>{
 test('an HTML error masquerading as HTTP 200 cannot become a profile image',async()=>{
  const t=setup({imageMime:'text/html'});await assert.rejects(t.api.create('Synthetic Person',[]),/Profilbilden/);assert.equal(t.mutations.length,0);
 });
-test('metadata and schema failures do not create bare-name records',async()=>{
- for(const options of [{metadataStatus:502},{metadataStatus:404},{schemaError:true}]) {
+test('metadata service and schema failures do not create bare-name records',async()=>{
+ for(const options of [{metadataStatus:502},{schemaError:true}]) {
   const t=setup(options);await assert.rejects(t.api.create('Synthetic Person',[]));assert.equal(t.mutations.length,0);
  }
 });
@@ -89,4 +89,13 @@ test('a matching name without the same external identity cannot merge unrelated 
  for(const ids of [[],[{stash_id:'different-person',endpoint:'https://stashdb.org/graphql'}]]) {
   const t=setup({current:{...current,stash_ids:ids}});await t.api.complete({id:'42'},'Synthetic Person',[]);assert.equal(t.mutations.length,0);
  }
+});
+
+test('a missing external match creates a performer using only the detected name',async()=>{
+ const t=setup({metadataStatus:404});
+ const created=await t.api.create('  Synthetic Person  ',['Extra Alias']);
+ assert.equal(created.id,'42');
+ assert.equal(t.mutations.length,1);
+ assert.deepEqual(t.mutations[0].variables.input,{name:'Synthetic Person'});
+ assert.ok(!t.requests.some(r=>r.url.includes('images.example')||r.url.includes('/resolve_image')));
 });

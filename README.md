@@ -1,4 +1,4 @@
-# Face Recognition Plugin 2.4.1
+# Face Recognition Plugin 2.4.2
 
 Plugin för Stash med analys av den aktuella videobilden, förslag i bildöverlägg och möjlighet att lägga till en vald performer i scenen.
 
@@ -25,6 +25,11 @@ API-nycklar finns endast på API-servern. Pluginet lagrar eller skickar inga met
 ## Installation och uppdatering
 
 Se [INSTALLATION.md](INSTALLATION.md). Paketet består av `face-recognition.js`, `face-recognition.css` och `face-recognition.yml`. `index.yml` innehåller version och SHA-256 för ZIP-arkivet.
+
+## Ändringar i 2.4.2
+
+- Om ingen extern metadata hittas skapas personen med enbart det identifierade namnet när **Skapa nya performers** är aktiverat. Personen kan sedan läggas till i scenen.
+- Fel vid metadatahämtning eller import rapporteras fortfarande som fel.
 
 ## Ändringar i 2.4.1
 

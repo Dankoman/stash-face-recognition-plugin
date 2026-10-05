@@ -1,6 +1,6 @@
 - id: face-recognition
   name: Face Recognition Plugin
-  version: 2.4.1
+  version: 2.4.2
   path: face-recognition.zip
-  sha256: b4ef475cda230ab7fb24762cf1b9536f634988a7c96bc25913ecd706a57249d9
+  sha256: 7d35afbc4ba985876d074602bdae34add0bb6739af738e7386c1db58e13a1314
   description: Plugin för ansiktsigenkänning
