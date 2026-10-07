@@ -23,6 +23,7 @@
   let pluginSettings = { ...DEFAULT_SETTINGS };
 
   let overlayClearTimer = null;
+  const previewDisposers = new Set();
   let recognitionInFlight = false;
 
   function parseBooleanSetting(value) {
@@ -1177,6 +1178,8 @@
     return document.querySelector('#scene-edit-details .edit-buttons-container') || document.querySelector('#scene-edit-details');
   }
   function clearOverlay() {
+    for (const dispose of Array.from(previewDisposers)) dispose();
+    document.querySelectorAll('.frp-preview').forEach(n => n.remove());
     document.querySelectorAll('.frp-overlay').forEach(n => n.remove());
     if (overlayClearTimer) {
       clearTimeout(overlayClearTimer);
@@ -1262,6 +1265,9 @@
     let tipRef = null;
     let enterTimer = null;
     let pendingCtrl = null;
+    let hovered = false;
+    let disposed = false;
+    const isActive = () => !disposed && hovered && rowEl.isConnected;
 
     function placeTipNear(el, tip) {
       const r = el.getBoundingClientRect();
@@ -1326,78 +1332,87 @@
 
     function removeTip() {
       if (tipRef) {
+        const img = tipRef.querySelector('img');
+        if (img) { img.onload = null; img.onerror = null; }
         tipRef.remove();
         tipRef = null;
       }
     }
 
-    rowEl.addEventListener('mouseenter', () => {
+    function leave() {
+      hovered = false;
+      if (enterTimer) { clearTimeout(enterTimer); enterTimer = null; }
+      if (pendingCtrl) { pendingCtrl.abort(); pendingCtrl = null; }
+      removeTip();
+    }
+
+    function enter() {
+      if (disposed || !rowEl.isConnected) return;
+      hovered = true;
       if (enterTimer) clearTimeout(enterTimer);
       enterTimer = setTimeout(async () => {
-        if (tipRef) return;
-        const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+        enterTimer = null;
+        if (!isActive() || tipRef) return;
+        const ctrl = new AbortController();
         pendingCtrl = ctrl;
         let url;
         try {
-          url = await resolveImageURL(name, ctrl ? ctrl.signal : undefined);
+          url = await resolveImageURL(name, ctrl.signal);
         } catch (err) {
-          if (err?.name !== 'AbortError') {
-            console.error('Preview-fetch misslyckades:', err);
-          }
+          if (pendingCtrl === ctrl && err?.name !== 'AbortError') console.error('Preview-fetch misslyckades:', err);
           if (pendingCtrl === ctrl) pendingCtrl = null;
           return;
         }
-        if (pendingCtrl !== ctrl) {
-          return;
-        }
+        if (pendingCtrl !== ctrl || !isActive()) return;
         pendingCtrl = null;
         if (!url || tipRef) return;
 
         const { tip, img } = makePreviewTooltip();
         tip.dataset.frPreview = name;
-        tip.style.width = '350px';
-        tip.style.maxWidth = '350px';
-        tip.style.maxHeight = '80vh';
-        img.style.maxWidth = '350px';
-        img.style.width = '350px';
-        img.style.height = 'auto';
-        img.style.objectFit = 'contain';
+        // Measure only while attached, but keep the image hidden until positioned.
+        tip.style.visibility = 'hidden';
         tipRef = tip;
-
         img.onload = () => {
           if (tipRef !== tip) return;
-          if (!tip.parentNode) document.body.appendChild(tip);
+          if (!isActive()) { removeTip(); return; }
           placeTipNear(rowEl, tip);
           ensureTipVisible(tip);
+          tip.style.visibility = 'visible';
         };
         img.onerror = () => {
-          if (getCachedImageHref(name) === url) {
-            imageCache.delete(name);
-          }
-          if (tipRef === tip) {
-            tipRef = null;
-          }
-          tip.remove();
+          if (getCachedImageHref(name) === url) imageCache.delete(name);
+          if (tipRef === tip) removeTip();
         };
-        if (!tip.parentNode) document.body.appendChild(tip);
+        document.body.appendChild(tip);
         img.src = url;
       }, 150);
-    });
+    }
 
-    rowEl.addEventListener('mousemove', () => {
-      if (!tipRef) return;
+    function move() {
+      if (!isActive()) { leave(); return; }
+      if (!tipRef || tipRef.style.visibility !== 'visible') return;
       placeTipNear(rowEl, tipRef);
       ensureTipVisible(tipRef);
-    });
+    }
 
-    rowEl.addEventListener('mouseleave', () => {
-      if (enterTimer) { clearTimeout(enterTimer); enterTimer = null; }
-      if (pendingCtrl) {
-        try { pendingCtrl.abort(); } catch (_) { }
-        pendingCtrl = null;
-      }
-      removeTip();
-    });
+    function dispose() {
+      if (disposed) return;
+      disposed = true;
+      leave();
+      rowEl.removeEventListener('mouseenter', enter);
+      rowEl.removeEventListener('mousemove', move);
+      rowEl.removeEventListener('mouseleave', leave);
+      window.removeEventListener('resize', leave);
+      window.removeEventListener('scroll', leave, true);
+      previewDisposers.delete(dispose);
+    }
+    rowEl.addEventListener('mouseenter', enter);
+    rowEl.addEventListener('mousemove', move);
+    rowEl.addEventListener('mouseleave', leave);
+    window.addEventListener('resize', leave);
+    window.addEventListener('scroll', leave, true);
+    previewDisposers.add(dispose);
+    return dispose;
   }
 
   // ---------------- Overlay-rendering ----------------
@@ -1441,6 +1456,7 @@
       });
       sug.style.setProperty('display', 'none', 'important');
 
+      const rowPreviewDisposers = [];
       const minPct = Math.max(0, Math.min(100, pluginSettings.min_confidence));
       const cands = (face.candidates || [])
         .filter(c => (c.score * 100) >= minPct)
@@ -1471,8 +1487,8 @@
             row.style.opacity = '0.6';
             try {
               await addPerformerToSceneByName(c.name);
+              rowPreviewDisposers.forEach(dispose => dispose());
               box.remove(); // Ta bort bounding boxen om det lyckades
-              document.querySelectorAll('.frp-preview').forEach(p => p.remove()); // Ta bort eventuell preview
             } catch (err) {
               console.error(err);
               notify(`Misslyckades: ${err.message || err}`, true);
@@ -1481,7 +1497,7 @@
           });
 
           sug.appendChild(row);
-          attachHoverPreview(row, c.name);
+          rowPreviewDisposers.push(attachHoverPreview(row, c.name));
         });
         const last = sug.lastElementChild; if (last) last.style.borderBottom = 'none';
       }
@@ -1568,6 +1584,7 @@
     const panelHost = findEditPanelContainer();
     let btn = document.querySelector('.frp-fab');
     if (!panelHost) {
+      clearOverlay();
       document.querySelectorAll('.frp-fab-wrapper, .frp-fab').forEach(node => node.remove());
       return;
     }

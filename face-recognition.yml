@@ -1,6 +1,6 @@
 name: Face Recognition Plugin
 description: Plugin för ansiktsigenkänning som kan pausa scener, extrahera bilder, visa bounding boxes med namn som overlay och lägga till identifierade personer till scenen
-version: 3.0.0-dev.4
+version: 3.0.0-dev.5
 url: https://github.com/Dankoman/stash-face-recognition-plugin
 
 ui:

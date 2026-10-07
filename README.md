@@ -1,4 +1,4 @@
-# Face Recognition Plugin 3.0.0-dev.4
+# Face Recognition Plugin 3.0.0-dev.5
 
 Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och din exporterade igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
 
@@ -10,7 +10,7 @@ Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet in
 4. Välj ett förslag för att lägga till personen i scenen. Automatisk koppling och skapande av nya performers styrs av inställningarna.
 5. Högerklicka på knappen för inställningar och **Testa analysmotor**.
 
-Knappen visas inte på Details, andra scenflikar eller Settings. Ingen flytande knapp skapas.
+Knappen visas inte på Details, andra scenflikar eller Settings. Ingen flytande knapp skapas. Förhandsbilder visas bredvid det aktiva förslaget och stängs vid val, avslutad hover, sidbyte eller när resultatet tas bort.
 
 ## Analys
 
@@ -28,7 +28,7 @@ Primärkällan provas först, följd av övriga konfigurerade källor. Exakta na
 
 ## Installation
 
-Se [INSTALLATION.md](INSTALLATION.md). Det lokala experimentpaketet finns i `dist/face-recognition-3.0.0-dev.4.zip`. Denna grens `index.yml` publicerar experimentversionen för uppgradering via Stash.
+Se [INSTALLATION.md](INSTALLATION.md). Det lokala experimentpaketet finns i `dist/face-recognition-3.0.0-dev.5.zip`. Denna grens `index.yml` publicerar experimentversionen för uppgradering via Stash.
 
 ## Verifiering
 
