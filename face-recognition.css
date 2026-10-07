@@ -119,6 +119,44 @@
   display: block !important;
 }
 
+.frp-candidate-preview {
+  width: 72px;
+  height: 96px;
+  flex: 0 0 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #252830;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 11px;
+  color: #bfc5ce;
+  text-align: center;
+}
+
+.frp-candidate-image {
+  width: 72px;
+  height: 96px;
+  object-fit: contain;
+}
+
+.frp-candidate-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.frp-candidate-warning {
+  color: #ffc46b;
+  font-size: 12px;
+}
+
+.frp-candidate:hover {
+  background: rgba(255,255,255,.08);
+}
+
 .frp-suggestion {
   display: flex;
   align-items: flex-start;

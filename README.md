@@ -1,4 +1,4 @@
-# Face Recognition Plugin 3.0.1
+# Face Recognition Plugin 3.0.2
 
 Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och en paketerad igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
 
@@ -6,11 +6,11 @@ Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet in
 
 1. Öppna en scen och välj **Edit**. Identifiera-knappen visas enbart där.
 2. Starta videon och pausa vid önskad bildruta.
-3. Klicka **Identifiera**. Resultat visas som överlägg med förslag och konfidens.
+3. Klicka **Identifiera**. För musen över ansiktsrutan för att visa resultatlistan med kandidatbilder och konfidens.
 4. Välj ett förslag för att lägga till personen i scenen. Automatisk koppling och skapande av nya performers styrs av inställningarna.
 5. Högerklicka på knappen för inställningar och **Testa analysmotor**.
 
-Knappen visas inte på Details, andra scenflikar eller Settings. Ingen flytande knapp skapas. Förhandsbilder visas bredvid det aktiva förslaget och stängs vid val, avslutad hover, sidbyte eller när resultatet tas bort.
+Knappen visas inte på Details, andra scenflikar eller Settings. Ingen flytande knapp skapas. **Max förslag (topp-K)** styr antalet kandidater med varsin preview i listan. Förslag under **Minimum konfidens** visas med märkningen **Osäkert förslag**. Saknas en bild visas **Bild saknas**, och kandidaten går fortfarande att välja. Större förhandsbilder visas bredvid det aktiva förslaget och stängs vid val, avslutad hover, sidbyte eller när resultatet tas bort.
 
 ## Analys
 
@@ -28,7 +28,7 @@ Välj **Alla** under Metadatakälla för sökordningen **StashDB → TPDB → PM
 
 ## Installation
 
-Se [INSTALLATION.md](INSTALLATION.md). Installera eller uppgradera via Stash med `main/index.yml` som plugin-källa. GitHub-versionen 3.0.1 innehåller det kompletta ZIP-paketet med modeller, runtime och igenkänningsdata.
+Se [INSTALLATION.md](INSTALLATION.md). Installera eller uppgradera via Stash med `main/index.yml` som plugin-källa. GitHub-versionen 3.0.2 innehåller det kompletta ZIP-paketet med modeller, runtime och igenkänningsdata.
 
 ## Verifiering
 
@@ -41,6 +41,6 @@ node --test tests/*.test.cjs
 
 `tests/browser-smoke.html` kör de faktiska paketerade modellerna på syntetisk media, också med CSP som tillåter WebAssembly men inte allmän JavaScript-eval. `tests/ui-placement.html` verifierar knappens placering med Stashs observerade DOM-struktur. Testserver och Node/Python används bara under utveckling.
 
-Verifierat i Chrome/Linux: modellerna körs på CPU, analys av pausad video fungerar, befintliga performers kan väljas utan tvetydiga namnsökningar och previewn placeras vid förslaget och tas bort efter valet. Knappen visas enbart i Edit. 59 automatiserade tester täcker även metadataimport, inställningar, arbetaren och fördröjd preview-laddning.
+Verifierat i Chrome/Linux: modellerna körs på CPU, analys av pausad video fungerar, befintliga performers kan väljas utan tvetydiga namnsökningar och previewn placeras vid förslaget och tas bort efter valet. Knappen visas enbart i Edit. 64 automatiserade tester täcker även metadataimport, inställningar, arbetaren och fördröjd preview-laddning.
 
 Windows, AMD/Nvidia-acceleration, bredare träffsäkerhet och full metadataimport mot livekällor är ännu inte verifierade. WebGPU-stöd beror på webbläsare och drivrutiner; CPU/WebAssembly används som fallback.

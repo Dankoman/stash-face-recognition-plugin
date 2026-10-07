@@ -1053,8 +1053,9 @@
         <label>Visa konfidensgrad:</label>
         <input type="checkbox" id="fr-show-confidence" ${pluginSettings.show_confidence ? 'checked' : ''}>
 
-        <label>Minimum konfidens (0–100):</label>
+        <label for="fr-min-confidence">Minimum konfidens (0–100):</label>
         <input type="number" id="fr-min-confidence" value="${pluginSettings.min_confidence}" min="0" max="100">
+        <p style="font-size:12px;color:#aaa;">Förslag under gränsen märks som osäkra men visas fortfarande.</p>
 
         <label>
           <input type="checkbox" id="fr-auto-add" ${pluginSettings.auto_add_performers ? 'checked' : ''}>
@@ -1068,8 +1069,9 @@
 
         <hr style="margin:12px 0;border-color:#3a3a3a;">
 
-        <label>Max förslag (topp-K):</label>
+        <label for="fr-max-suggestions">Max förslag (topp-K):</label>
         <input type="number" id="fr-max-suggestions" value="${pluginSettings.max_suggestions}" min="1" max="10">
+        <p style="font-size:12px;color:#aaa;">Antal kandidater med varsin preview i resultatlistan.</p>
 
         <label>Bildkälla (local | stashdb | both):</label>
         <input type="text" id="fr-image-source" value="${escapeAttr(pluginSettings.image_source)}">
@@ -1426,6 +1428,59 @@
     return dispose;
   }
 
+  // Each suggestion has a persistent thumbnail while its result list exists.
+  function attachCandidatePreview(rowEl, name) {
+    const frame = document.createElement('div');
+    frame.className = 'frp-candidate-preview';
+    const status = document.createElement('span');
+    status.textContent = 'Laddar bild…';
+    const img = document.createElement('img');
+    img.className = 'frp-candidate-image';
+    img.alt = `Preview för ${name}`;
+    img.style.display = 'none';
+    frame.appendChild(status);
+    frame.appendChild(img);
+    rowEl.appendChild(frame);
+    const ctrl = new AbortController();
+    let disposed = false;
+    const isActive = () => !disposed && rowEl.isConnected;
+    function missing() {
+      if (!isActive()) return;
+      img.style.display = 'none';
+      status.style.display = '';
+      status.textContent = 'Bild saknas';
+    }
+    img.onload = () => {
+      if (!isActive()) return;
+      status.style.display = 'none';
+      img.style.display = 'block';
+    };
+    img.onerror = missing;
+    async function load() {
+      if (!isActive()) return;
+      try {
+        const url = await resolveImageURL(name, ctrl.signal);
+        if (!isActive()) return;
+        if (url) img.src = url;
+        else missing();
+      } catch (err) {
+        if (err?.name !== 'AbortError') missing();
+      }
+    }
+    function dispose() {
+      if (disposed) return;
+      disposed = true;
+      ctrl.abort();
+      img.onload = null;
+      img.onerror = null;
+      previewDisposers.delete(dispose);
+    }
+    previewDisposers.add(dispose);
+    // Defer until the complete result list has been attached to the document.
+    Promise.resolve().then(load);
+    return dispose;
+  }
+
   // ---------------- Overlay-rendering ----------------
   function renderRecognizeOverlay(items) {
     clearOverlay();
@@ -1460,37 +1515,48 @@
       const sug = document.createElement('div');
       sug.className = 'frp-suggestions';
       Object.assign(sug.style, {
-        position: 'absolute', left: '0px', top: '100%', marginTop: '6px',
-        minWidth: '240px', background: 'rgba(18,18,18,0.92)', color: '#f2f2f2',
+        position: 'fixed', left: left + 'px', top: (top + height + 6) + 'px', marginTop: '0',
+        minWidth: '0', width: '330px', maxWidth: 'calc(100vw - 24px)', maxHeight: 'calc(100vh - 24px)',
+        background: 'rgba(18,18,18,0.96)', color: '#f2f2f2',
         border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px',
-        overflow: 'hidden', backdropFilter: 'blur(6px)', pointerEvents: 'auto'
+        overflowY: 'auto', backdropFilter: 'blur(6px)', pointerEvents: 'auto'
       });
       sug.style.setProperty('display', 'none', 'important');
 
       const rowPreviewDisposers = [];
       const minPct = Math.max(0, Math.min(100, pluginSettings.min_confidence));
       const cands = (face.candidates || [])
-        .filter(c => (c.score * 100) >= minPct)
         .slice(0, pluginSettings.max_suggestions || 3);
 
       if (cands.length === 0) {
         const row = document.createElement('div');
         Object.assign(row.style, { padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' });
-        row.textContent = '(inga kandidater över tröskeln)';
+        row.textContent = '(inga kandidater)';
         sug.appendChild(row);
       } else {
-        cands.forEach(c => {
+        cands.forEach((c, index) => {
           const row = document.createElement('div');
+          row.className = 'frp-candidate';
           Object.assign(row.style, {
             display: 'flex', alignItems: 'center', gap: '10px',
             padding: '8px 10px', lineHeight: '1.25',
             borderBottom: '1px solid rgba(255,255,255,0.06)',
             cursor: 'pointer'
           });
+          rowPreviewDisposers.push(attachCandidatePreview(row, c.name));
+          const text = document.createElement('div');
+          text.className = 'frp-candidate-text';
           const span = document.createElement('span');
-          span.textContent = pluginSettings.show_confidence ? `${c.name} (${Math.round(c.score * 100)}%)` : c.name;
+          span.textContent = `${index + 1}. ${c.name}${pluginSettings.show_confidence ? ` (${Math.round(c.score * 100)}%)` : ''}`;
           Object.assign(span.style, { fontSize: '14px', fontWeight: '600', color: '#f7f7f7', textShadow: '0 1px 1px rgba(0,0,0,0.4)' });
-          row.appendChild(span);
+          text.appendChild(span);
+          if (c.score * 100 < minPct) {
+            const warning = document.createElement('span');
+            warning.className = 'frp-candidate-warning';
+            warning.textContent = 'Osäkert förslag';
+            text.appendChild(warning);
+          }
+          row.appendChild(text);
 
           // --- NYTT: klick = lägg till i scenen ---
           row.addEventListener('click', async (e) => {
@@ -1520,6 +1586,13 @@
       function showSug() {
         clearTimeout(hideTimer);
         sug.style.setProperty('display', 'block', 'important');
+        const sr = sug.getBoundingClientRect();
+        const br = box.getBoundingClientRect();
+        const pad = 12;
+        sug.style.left = Math.max(pad, Math.min(br.left, window.innerWidth - sr.width - pad)) + 'px';
+        const below = br.bottom + 6;
+        const desiredTop = below + sr.height <= window.innerHeight - pad ? below : br.top - sr.height - 6;
+        sug.style.top = Math.max(pad, Math.min(desiredTop, window.innerHeight - sr.height - pad)) + 'px';
         box.style.setProperty('border-color', 'rgba(0, 200, 255, 1)', 'important');
         box.style.setProperty('z-index', '100', 'important');
       }

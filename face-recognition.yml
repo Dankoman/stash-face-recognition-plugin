@@ -1,6 +1,6 @@
 name: Face Recognition Plugin
 description: Plugin för ansiktsigenkänning som kan pausa scener, extrahera bilder, visa bounding boxes med namn som overlay och lägga till identifierade personer till scenen
-version: 3.0.1
+version: 3.0.2
 url: https://github.com/Dankoman/stash-face-recognition-plugin
 
 ui:
@@ -39,7 +39,7 @@ settings:
     type: BOOLEAN
   min_confidence:
     displayName: Minimum konfidensgrad
-    description: Minimum konfidensgrad för att visa identifiering (0-100)
+    description: Förslag under gränsen (0-100) märks som osäkra och visas fortfarande.
     type: NUMBER
   auto_add_performers:
     displayName: Lägg till performers automatiskt
@@ -51,7 +51,7 @@ settings:
     type: BOOLEAN
   max_suggestions:
     displayName: Max förslag (topp-K)
-    description: Antal förslag per ansikte (1-10)
+    description: Antal kandidater med varsin preview per ansikte (1-10).
     type: NUMBER
   image_source:
     displayName: Bildkälla
