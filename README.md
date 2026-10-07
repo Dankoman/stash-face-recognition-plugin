@@ -1,61 +1,44 @@
-# Face Recognition Plugin 2.4.2
+# Face Recognition Plugin 3.0.0-dev
 
-Plugin för Stash med analys av den aktuella videobilden, förslag i bildöverlägg och möjlighet att lägga till en vald performer i scenen.
-
-## Drift
-
-```text
-Webbläsare → Stashs HTTPS-adress /face-api/ → StashAPI (Go)
-                          ↘ Stash kontrollerar inloggningen
-```
-
-Pluginet använder normalt `/face-api`. Samma domän, certifikat och session som Stash används, utan en separat publik API-adress. Go-tjänsten kör analysen och hämtar metadata/bilder. En annan explicit HTTP(S)-adress kan fortfarande konfigureras; HTTP från en HTTPS-sida avvisas med ett tydligt fel.
+Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och din exporterade igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
 
 ## Användning
 
-1. Öppna en scen och välj en bildruta i videon.
-2. Klicka **Identifiera**. Knappen visar **Analyserar…** under anropet.
-3. Välj ett förslag i bildöverlägget för att lägga till det i scenen.
-4. Högerklicka på knappen för inställningar. **Testa anslutning** kontrollerar den sparade API-adressen utan att skicka en videobild.
+1. Öppna en scen och välj **Edit**. Identifiera-knappen visas enbart där.
+2. Starta videon och pausa vid önskad bildruta.
+3. Klicka **Identifiera**. Resultat visas som överlägg med förslag och konfidens.
+4. Välj ett förslag för att lägga till personen i scenen. Automatisk koppling och skapande av nya performers styrs av inställningarna.
+5. Högerklicka på knappen för inställningar och **Testa analysmotor**.
 
-Inställningar sparas i Stash. Panelen och Stashs pluginsida redigerar samma värden. Sidan behöver laddas om efter ändringar från Stashs pluginsida. Ett misslyckat sparande stänger inte panelen och ändrar inte den aktiva konfigurationen.
+Knappen visas inte på Details, andra scenflikar eller Settings. Ingen flytande knapp skapas.
 
-API-nycklar finns endast på API-servern. Pluginet lagrar eller skickar inga metadata-nycklar i webbläsarens localStorage eller API-adresser.
+## Analys
 
-## Installation och uppdatering
+En bakgrundsarbetare laddar modellerna från pluginets egna Stash-adresser. `auto` provar WebGPU och återgår till CPU/WebAssembly när en GPU saknas eller modellen inte fungerar på den. `cpu` tvingar CPU. Motortestet kör båda modellerna innan det rapporterar att motorn är redo. GPU:n på datorn med webbläsaren används. Samma paket används på Windows och Linux; GPU-stöd beror på webbläsare och drivrutiner.
 
-Se [INSTALLATION.md](INSTALLATION.md). Paketet består av `face-recognition.js`, `face-recognition.css` och `face-recognition.yml`. `index.yml` innehåller version och SHA-256 för ZIP-arkivet.
+De första anropen inkluderar modelladdning. Motorn återanvänds därefter, och timeout avbryter arbetaren för att frigöra resurser. Modellerna körs utan krav på SharedArrayBuffer, COOP/COEP, CUDA eller ROCm. Videobilden skickas inte till någon analysserver.
 
-## Ändringar i 2.4.2
+Matchning använder exporterade 512-dimensionella embeddings och cosinusavstånd, med samma viktade grannröstning och poängmappning som Go-versionen. Koordinater räknas tillbaka till originalbilden. Justeringen använder en likformighetstransform med samma referenspunkter; numeriskt identiska resultat med OpenCV/RANSAC utlovas inte.
 
-- Om ingen extern metadata hittas skapas personen med enbart det identifierade namnet när **Skapa nya performers** är aktiverat. Personen kan sedan läggas till i scenen.
-- Fel vid metadatahämtning eller import rapporteras fortfarande som fel.
+## Metadata och bilder
 
-## Ändringar i 2.4.1
+Stashs egna GraphQL-uppslag används för konfigurerade Stash-box-källor: StashDB, ThePornDB, PMVStash och FansDB. API-nycklar begärs inte av pluginet. Konfigurera önskade källor under **Settings → Metadata Providers → Stash-Box Endpoints**; inga separata scrapers behöver installeras.
 
-- Profilbilden hämtas före skapandet och skickas som bilddata till Stash. Om bildhämtningen misslyckas skapas ingen ofullständig post.
-- Alla alias följer med. Strängfält för exempelvis etnicitet och hår-/ögonfärg hanteras enligt Stashs faktiska schema.
-- Födelse-/dödsdatum, land, mått, längd, vikt, karriär, tatueringar, piercingar, länkar och externa ID:n importeras när källan tillhandahåller dem och Stash stöder fälten.
-- Misslyckad metadataimport försöker inte längre skapa en person med enbart namn.
-- När en befintlig person väljs igen kompletteras saknade fält och profilbild, förutsatt att samma externa ID redan är kopplat. Ifyllda värden och egna bilder bevaras; alias och länkar slås ihop. Ingen massändring av biblioteket görs.
+Primärkällan provas först, följd av övriga konfigurerade källor. Exakta namn eller alias krävs. Tvetydiga träffar stoppas. Ett källfel skiljs från en lyckad sökning utan träff, så ett fel inte skapar en person med enbart namn. Alla fält som Stash exponerar genom `ScrapedPerformer` och accepterar vid import följer med. Bilder hämtas av Stash vid skapande/uppdatering, vilket undviker webbläsarens CORS-problem. Komplettering bevarar ifyllda lokala fält och kräver samma externa identitet.
 
-## Ändringar i 2.4
+## Installation
 
-- Samma adress och inloggning som Stash via `/face-api`.
-- Stash är enda källa för inställningarna; gammal lokal cache tas bort efter lyckad inläsning.
-- Metadata-nycklar hanteras på servern.
-- Ingen återkommande timer som söker igenom sidan. Relevanta förändringar vid videospelaren samlas till en uppdatering.
-- Bildcachen begränsas till 64 poster och töms när inställningarna ändras.
-- Anslutningstest, tydlig pågående-status, skydd mot dubbelklick och meddelande vid tomma resultat.
-- API:t får `raw_faces=1`; pluginet använder sin egen konfidensgräns.
+Se [INSTALLATION.md](INSTALLATION.md). Det lokala experimentpaketet finns i `dist/face-recognition-3.0.0-dev.zip`. Det vanliga `index.yml` och gamla ZIP-arkivet är fortfarande för den stabila 2.4.2-versionen; använd experimentpaketet för denna gren.
 
 ## Verifiering
 
 ```sh
 node --check face-recognition.js
-node tests/settings.test.cjs
-node tests/recognition-ui.test.cjs
-node tests/performer-import.test.cjs
+node --check standalone-browser.js
+node --check assets/recognition-worker.js
+node --test tests/*.test.cjs
 ```
 
-Testerna använder syntetisk media och ett simulerat API. De kontrollerar inställningar, sparfel, URL-hantering, samlade DOM-uppdateringar, dubbelklick, tomma svar och nätverksfel.
+`tests/browser-smoke.html` kör de faktiska paketerade modellerna på syntetisk media, också med CSP som tillåter WebAssembly men inte allmän JavaScript-eval. `tests/ui-placement.html` verifierar knappens placering med Stashs observerade DOM-struktur. Testserver och Node/Python används bara under utveckling.
+
+Lokalt verifierat i Chrome/Linux: båda modellerna laddas och körs på CPU, tom bild returnerar inga ansikten, knappen finns enbart i Edit. Den aktuella Chrome-sessionen erbjöd ingen användbar WebGPU-adapter. Windows, AMD/Nvidia-acceleration, träffsäkerhet på riktiga scener och metadataimport mot dina livekällor återstår att verifiera innan versionen är färdig för normal drift.

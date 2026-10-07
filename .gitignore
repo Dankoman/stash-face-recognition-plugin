@@ -1,0 +1,6 @@
+# Generated, packaged locally; never publish private recognition data by accident.
+assets/models/
+assets/gallery/
+assets/runtime/
+dist/
+__pycache__/

@@ -1,16 +1,25 @@
 name: Face Recognition Plugin
 description: Plugin för ansiktsigenkänning som kan pausa scener, extrahera bilder, visa bounding boxes med namn som overlay och lägga till identifierade personer till scenen
-version: 2.4.2
+version: 3.0.0-dev
 url: https://github.com/Dankoman/stash-face-recognition-plugin
 
 ui:
   javascript:
+    - standalone-browser.js
     - face-recognition.js
   css:
     - face-recognition.css
+  assets:
+    face: assets
   csp:
     script-src:
       - "'self'"
+      - "'wasm-unsafe-eval'"
+    worker-src:
+      - "'self'"
+    img-src:
+      - "data:"
+      - "https:"
     style-src:
       - "'self'"
       - "'unsafe-inline'"
@@ -21,13 +30,13 @@ ui:
 
 
 settings:
-  api_url:
-    displayName: API URL
-    description: API-adress. Förvalt /face-api använder Stashs egen adress och inloggning.
+  compute_backend:
+    displayName: Analysmotor
+    description: auto använder WebGPU om tillgänglig, cpu använder WebAssembly.
     type: STRING
   api_timeout:
-    displayName: API Timeout (sekunder)
-    description: Timeout för API-anrop i sekunder
+    displayName: Analystimeout (sekunder)
+    description: Maximal tid inklusive modelladdning (30–600 sekunder). Förvalt 180.
     type: NUMBER
   show_confidence:
     displayName: Visa konfidensgrad

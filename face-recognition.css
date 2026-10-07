@@ -39,28 +39,6 @@
   letter-spacing: 0.01em;
 }
 
-.frp-fab--floating {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translate(-50%, 0);
-}
-
-.frp-fab--floating:hover {
-  transform: translate(-50%, -2px);
-}
-
-.frp-fab--floating:active {
-  transform: translate(-50%, 2px);
-}
-
-.frp-fab--global {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translate(-50%, 0);
-}
-
 .frp-fab--panel {
   position: relative;
   width: 100%;
@@ -82,28 +60,8 @@
   gap: 12px;
 }
 
-.frp-fab-anchor {
-  position: relative !important;
-}
-
-.frp-fab-anchor .frp-fab--floating {
-  left: 50%;
-}
-
 @media (max-width: 640px) {
-  .frp-fab--floating {
-    bottom: 12px;
-    transform: translate(-50%, 0);
-    padding: 9px 11px;
-  }
-
-  .frp-fab--floating .frp-fab-text {
-    display: none;
-  }
-
-  .frp-fab--panel {
-    margin: 10px 0 12px;
-  }
+  .frp-fab--panel { margin: 10px 0 12px; }
 }
 
 .frp-overlay {

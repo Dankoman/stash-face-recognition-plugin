@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-// Exercise the real click handler with synthetic media and a mocked API.
+// Exercise the real click handler with synthetic media and a mocked browser engine.
 const source = fs.readFileSync(path.join(__dirname, '..', 'face-recognition.js'), 'utf8');
 const entrypoint = "init().catch(e => console.error('Initfel:', e));";
 assert.ok(source.includes(entrypoint));
@@ -23,6 +23,13 @@ function setup({ response = [], fetchError, readyState = 4, blob = new Blob(['sy
   let releaseRequest;
   const pendingRequest = new Promise(resolve => { releaseRequest = resolve; });
   const context = {
+    FaceRecognitionStandalone: {
+      metadataClient:()=>({}),
+      recognize:async(id,blob,topK)=>{
+        requests.push({id,blob,topK}); await pendingRequest;
+        if(fetchError) throw fetchError; return response;
+      },
+    },
     URL, AbortController, Blob, File, FormData,
     console: { error() {}, warn() {} },
     setTimeout: () => 1,
@@ -60,10 +67,8 @@ test('a pending request shows progress, blocks duplicate clicks, and reports an 
   assert.equal(ui.label.textContent, 'Analyserar…');
   await ui.run();
   assert.equal(ui.requests.length, 1);
-  const url = new URL(ui.requests[0].url);
-  assert.equal(url.searchParams.get('raw_faces'), '1');
-  assert.equal(url.searchParams.get('top_k'), '3');
-  assert.equal(ui.requests[0].options.body.get('image').name, 'frame.jpg');
+  assert.equal(ui.requests[0].topK, 3);
+  assert.ok(ui.requests[0].blob instanceof Blob);
   ui.releaseRequest();
   await pending;
   assert.equal(ui.button.disabled, false);
@@ -80,7 +85,7 @@ test('a failed request reports its error and restores the button', async () => {
   assert.match(ui.notifications.at(-1), /Failed to fetch/);
 });
 
-test('an unexpected API response is reported instead of being treated as an empty result', async () => {
+test('an unexpected engine response is reported instead of being treated as an empty result', async () => {
   const ui = setup({ response: { error: 'unexpected response' } });
   ui.releaseRequest();
   await ui.run();
@@ -88,7 +93,7 @@ test('an unexpected API response is reported instead of being treated as an empt
   assert.match(ui.notifications.at(-1), /ogiltigt svar/);
 });
 
-test('a video without a decoded frame is not sent to the API', async () => {
+test('a video without a decoded frame is not sent to the engine', async () => {
   const ui = setup({ readyState: 1 });
   await ui.run();
   assert.equal(ui.requests.length, 0);

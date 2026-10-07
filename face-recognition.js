@@ -1,4 +1,4 @@
-// face-recognition.js — bytes-mode bildhämtning via backend-proxy (CSP-safe)
+// Face Recognition 3 — local browser inference and native Stash metadata
 // + Klick på förslag = lägg till performer i aktuell scen via Stash GraphQL
 
 (function () {
@@ -9,8 +9,8 @@
   let pluginId = null; // Stash internal plugin ID, resolved at runtime
 
   const DEFAULT_SETTINGS = Object.freeze({
-    api_url: '/face-api',
-    api_timeout: 30,
+    compute_backend: 'auto',
+    api_timeout: 180,
     show_confidence: true,
     min_confidence: 20,
     auto_add_performers: false,
@@ -42,9 +42,12 @@
       case 'min_confidence':
       case 'max_suggestions': {
         const num = parseInt(value, 10);
-        return Number.isFinite(num) ? num : undefined;
+        if (!Number.isFinite(num)) return undefined;
+        const bounds = {api_timeout:[30,600], min_confidence:[0,100], max_suggestions:[1,10]}[key];
+        return Math.max(bounds[0], Math.min(bounds[1], num));
       }
-      case 'api_url':
+      case 'compute_backend':
+        return ['auto', 'cpu'].includes(value) ? value : undefined;
       case 'stashdb_endpoint': {
         const text = String(value).trim();
         return text ? text : undefined;
@@ -58,7 +61,7 @@
       case 'tpdb_api_key':
       case 'pmvstash_api_key':
       case 'fansdb_api_key':
-        return undefined; // Credentials belong to the API service, never the browser.
+        return undefined; // Stash handles credentials; the plugin never reads them.
       case 'show_confidence':
       case 'auto_add_performers':
       case 'create_new_performers':
@@ -99,7 +102,8 @@
         }
       }
       pluginSettings = { ...DEFAULT_SETTINGS, ...merged };
-      pluginSettings.api_url = normalizeApiBaseUrl(pluginSettings.api_url) || DEFAULT_SETTINGS.api_url;
+      // The previous service timeout did not include browser model loading.
+      if (rawSettings && !rawSettings.compute_backend) pluginSettings.api_timeout = DEFAULT_SETTINGS.api_timeout;
       // Only remove the legacy cache after the authoritative settings loaded successfully.
       try { localStorage.removeItem(LEGACY_LS_KEY); } catch { }
     } catch (err) {
@@ -354,72 +358,12 @@
     return typeName.trim().toLowerCase() == 'upload';
   }
 
-  function normalizeApiBaseUrl(value) {
-    const text = String(value || '').trim().replace(/\/+$/, '');
-    if (!text) return '';
-    if (text.startsWith('/') && !text.startsWith('//') && !/[\\?#\s]/.test(text)) return text;
-    const url = new URL(text);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-      throw new Error('API-URL måste vara /face-api eller en HTTP(S)-adress utan inloggningsuppgifter');
-    }
-    return url.origin + url.pathname.replace(/\/+$/, '');
-  }
-
-  function buildApiUrl(pathname = '', params) {
-    try {
-      const base = normalizeApiBaseUrl(pluginSettings.api_url);
-      if (!base) throw new Error('API-URL saknas');
-      const target = new URL(base + '/' + pathname.replace(/^\/+/, ''), window.location.origin);
-      if (window.location.protocol === 'https:' && target.protocol === 'http:') {
-        throw new Error('Använd /face-api eller en HTTPS-adress när Stash körs över HTTPS');
-      }
-      for (const [key, value] of Object.entries(params || {})) {
-        for (const item of Array.isArray(value) ? value : [value]) {
-          if (item !== undefined && item !== null) target.searchParams.append(key, String(item));
-        }
-      }
-      return { href: target.href, error: null };
-    } catch (error) {
-      return { href: '', error };
-    }
-  }
-
+  const nativeMetadata = globalThis.FaceRecognitionStandalone.metadataClient(stashGraphQL);
   async function fetchStashdbMetadata(name, aliasCandidates) {
-    const normalized = normalizeCandidateName(name);
-    if (!normalized) return null;
-    const params = {
-      name: normalized,
-      stashdb_endpoint: pluginSettings.stashdb_endpoint || 'https://stashdb.org/graphql',
-      source: pluginSettings.metadata_source || 'stashdb',
-    };
-    if (Array.isArray(aliasCandidates) && aliasCandidates.length) {
-      const extras = uniqueStrings(aliasCandidates.map(normalizeCandidateName)).filter(val => val && val !== normalized);
-      if (extras.length) params.alias = extras;
-    }
-    const apiInfo = buildApiUrl('stashdb/performer', params);
-    if (apiInfo?.error) {
-      throw apiInfo.error;
-    }
     const ctrl = new AbortController();
-    const timeoutMs = Math.max(3, pluginSettings.api_timeout || 0) * 1000;
-    const handle = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const resp = await fetch(apiInfo.href, { method: 'GET', signal: ctrl.signal });
-      if (resp.status === 404) return null;
-      if (!resp.ok) {
-        throw new Error(`Metadata kunde inte hämtas (HTTP ${resp.status})`);
-      }
-      const data = await resp.json();
-      if (!data || !data.performer) throw new Error('Metadata-API:t returnerade ett ogiltigt svar');
-      return data;
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        console.error('Fel vid hämtning av StashDB-metadata:', err);
-      }
-      throw err;
-    } finally {
-      clearTimeout(handle);
-    }
+    const timer = setTimeout(() => ctrl.abort(), pluginSettings.api_timeout * 1000);
+    try { return await nativeMetadata.lookup(normalizeCandidateName(name), aliasCandidates || [], pluginSettings, ctrl.signal); }
+    finally { clearTimeout(timer); }
   }
 
   function buildAliasesInput(aliases, caps) {
@@ -611,11 +555,7 @@
           input.image = { url: cleanUrl };
           imageStrategy = { mode: 'inline', url: cleanUrl };
         } else {
-          // Stash's String image input accepts a data URL. Download first so a
-          // remote image failure cannot trigger a metadata-free second create.
-          const blob = await fetchImageBlobForPerformer(canonicalName, cleanUrl, metadata);
-          if (!blob) throw new Error('Profilbilden kunde inte hämtas. Ingen ofullständig person skapades.');
-          input.image = await imageBlobToDataURL(blob);
+          input.image = cleanUrl; // Stash downloads URLs or accepts scraper data URLs.
           imageStrategy = { mode: 'inline', url: cleanUrl };
         }
       }
@@ -632,35 +572,6 @@
     const cleaned = trimmed.replace(/[^0-9a-zA-Z._-]+/g, '_');
     const normalized = cleaned.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
     return (normalized || fallback).slice(0, 80);
-  }
-
-  async function fetchImageBlobViaApi(name, metadata) {
-    const candidate = normalizeCandidateName(name);
-    if (!candidate) return null;
-    const apiInfo = buildApiUrl('resolve_image', {
-      name: candidate,
-      source: imageMetadataSource(metadata),
-      stashdb_endpoint: metadata?.source_endpoint || pluginSettings.stashdb_endpoint,
-      format: 'bytes'
-    });
-    if (apiInfo?.error || !apiInfo.href) return null;
-    const ctrl = new AbortController();
-    const timeoutMs = Math.max(3, pluginSettings.api_timeout || 0) * 1000;
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const resp = await fetch(apiInfo.href, { signal: ctrl.signal });
-      if (!resp.ok || resp.status === 204) return null;
-      const blob = await resp.blob();
-      if (!blob || !blob.size) return null;
-      return blob;
-    } catch (err) {
-      if (err?.name !== 'AbortError') {
-        console.warn('Kunde inte hämta bild via API:', err);
-      }
-      return null;
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   async function fetchImageBlobDirect(url) {
@@ -686,12 +597,6 @@
     }
   }
 
-  function imageMetadataSource(metadata) {
-    const endpoints = { 'stashdb.org': 'stashdb', 'theporndb.net': 'tpdb', 'pmvstash.org': 'pmvstash', 'fansdb.cc': 'fansdb' };
-    try { return endpoints[new URL(metadata.source_endpoint).hostname] || pluginSettings.metadata_source; }
-    catch { return pluginSettings.metadata_source; }
-  }
-
   async function imageBlobToDataURL(blob) {
     if (!blob?.size || !/^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) {
       throw new Error('Bildkällan returnerade ingen giltig profilbild');
@@ -704,12 +609,6 @@
     const urls = uniqueStrings([fallbackUrl, metadata?.image_url, metadata?.performer?.image_url, metadata?.performer?.image_path].filter(Boolean));
     for (const url of urls) {
       const blob = await fetchImageBlobDirect(url);
-      if (blob?.size && /^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) return blob;
-    }
-    // Same-origin proxy is the fallback when the remote image blocks CORS.
-    const names = uniqueStrings([metadata?.performer?.name, primaryName].filter(Boolean));
-    for (const name of names) {
-      const blob = await fetchImageBlobViaApi(name, metadata);
       if (blob?.size && /^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) return blob;
     }
     return null;
@@ -1046,9 +945,7 @@
     const update = mergeMissingPerformerData(current, input, caps);
     const imageURL = metadata.image_url || metadata.performer?.image_url || metadata.performer?.image_path;
     if (imageURL && caps.updateFields.has('image') && getInputFieldType(caps, 'image') === 'String' && profileImageMissing(current.image_path)) {
-      const blob = await fetchImageBlobForPerformer(canonicalName, imageURL, metadata);
-      if (!blob) throw new Error('Profilbilden kunde inte hämtas. Försök igen.');
-      update.image = await imageBlobToDataURL(blob);
+      update.image = imageURL;
     }
     if (Object.keys(update).length > 1) {
       await stashGraphQL(`mutation($input:PerformerUpdateInput!){performerUpdate(input:$input){id}}`, { input: update });
@@ -1126,11 +1023,14 @@
     wrap.innerHTML = `
       <div class="fr-sp-head">Face Recognition - Inställningar</div>
       <div class="fr-sp-body" style="max-height:80vh;overflow-y:auto">
-        <label>API URL:</label>
-        <input type="text" id="fr-api-url" value="${escapeAttr(pluginSettings.api_url)}">
+        <label>Analysmotor:</label>
+        <select id="fr-compute-backend">
+          <option value="auto" ${pluginSettings.compute_backend === 'auto' ? 'selected' : ''}>Automatisk (GPU om tillgänglig)</option>
+          <option value="cpu" ${pluginSettings.compute_backend === 'cpu' ? 'selected' : ''}>CPU</option>
+        </select>
 
-        <label>API-timeout (sek):</label>
-        <input type="number" id="fr-api-timeout" value="${pluginSettings.api_timeout}" min="1" max="120">
+        <label>Analystimeout (sek):</label>
+        <input type="number" id="fr-api-timeout" value="${pluginSettings.api_timeout}" min="30" max="600">
 
         <label>Visa konfidensgrad:</label>
         <input type="checkbox" id="fr-show-confidence" ${pluginSettings.show_confidence ? 'checked' : ''}>
@@ -1162,10 +1062,10 @@
         <label>StashDB endpoint:</label>
         <input type="text" id="fr-stashdb-endpoint" value="${escapeAttr(pluginSettings.stashdb_endpoint)}">
 
-        <p>API-nycklar hanteras av API-tjänsten på servern.</p>
+        <p>Metadata hämtas via dina konfigurerade källor i Stash. Analysen körs i webbläsaren.</p>
 
         <div class="fr-sp-actions">
-          <button type="button" id="fr-sp-test">Testa anslutning</button>
+          <button type="button" id="fr-sp-test">Testa analysmotor</button>
           <button type="button" id="fr-sp-save">Spara</button>
           <button type="button" id="fr-sp-close">Stäng</button>
         </div>
@@ -1188,20 +1088,12 @@
     wrap.querySelector('#fr-sp-test').addEventListener('click', async event => {
       const button = event.currentTarget;
       button.disabled = true;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 10000);
       try {
-        const info = buildApiUrl('api/health');
-        if (info.error) throw info.error;
-        const response = await fetch(info.href, { signal: ctrl.signal });
-        if (!response.ok) throw new Error(`API-fel ${response.status}`);
-        const health = await response.json();
-        if (!health.model_loaded) throw new Error('Modellen är inte laddad');
-        notify(`Anslutningen fungerar. API ${health.version}, modellen är laddad.`);
+        const health = await globalThis.FaceRecognitionStandalone.health(pluginId, pluginSettings.compute_backend);
+        notify(`Analysmotorn fungerar: ${health.backend === 'webgpu' ? 'GPU (WebGPU)' : 'CPU (WebAssembly)'}, ${health.identities} identiteter.`);
       } catch (error) {
-        notify(`Anslutningstest misslyckades: ${error.message}`, true);
+        notify(`Motortest misslyckades: ${error.message}`, true);
       } finally {
-        clearTimeout(timer);
         button.disabled = false;
       }
     });
@@ -1220,8 +1112,8 @@
       };
       const settings = {
         ...pluginSettings,
-        api_url: normalizeApiBaseUrl(value('#fr-api-url')) || DEFAULT_SETTINGS.api_url,
-        api_timeout: bounded('#fr-api-timeout', 1, 120, 30),
+        compute_backend: value('#fr-compute-backend'),
+        api_timeout: bounded('#fr-api-timeout', 30, 600, 180),
         show_confidence: checked('#fr-show-confidence'),
         min_confidence: bounded('#fr-min-confidence', 0, 100, 20),
         auto_add_performers: checked('#fr-auto-add'),
@@ -1231,9 +1123,12 @@
         metadata_source: value('#fr-metadata-source').trim().toLowerCase(),
         stashdb_endpoint: value('#fr-stashdb-endpoint').trim() || DEFAULT_SETTINGS.stashdb_endpoint,
       };
+      if (!['auto', 'cpu'].includes(settings.compute_backend)) throw new Error('Ogiltig analysmotor');
       if (!['local', 'stashdb', 'both'].includes(settings.image_source)) throw new Error('Ogiltig bildkälla');
       if (!['stashdb', 'tpdb', 'pmvstash', 'fansdb'].includes(settings.metadata_source)) throw new Error('Ogiltig metadatakälla');
       await saveSettingsToBackend(settings);
+      globalThis.FaceRecognitionStandalone.reset();
+      nativeMetadata.clear();
       notify('Inställningar sparade');
       root.remove();
     } catch (error) {
@@ -1262,53 +1157,11 @@
     }
     return video.parentElement || null;
   }
-  function findInfoPanelContainer() {
-    const hintSelectors = [
-      '[data-testid="scene-details-panel"]',
-      '.scene-details-panel',
-      '.scene-tabs .scene-details',
-      '.scene-tabs .scene-info',
-      '.SceneDetails',
-      '.SceneInfoPanel'
-    ];
-    for (const sel of hintSelectors) {
-      const el = document.querySelector(sel);
-      if (el) return el;
-    }
-
-    const videoHost = findVideoContainer();
-    if (!videoHost) return null;
-    const videoRect = videoHost.getBoundingClientRect ? videoHost.getBoundingClientRect() : null;
-    let parent = videoHost.parentElement;
-
-    while (parent && parent !== document.body) {
-      let style;
-      try { style = getComputedStyle(parent); } catch (_) { style = null; }
-      const isLayout = !!style && (style.display === 'flex' || style.display === 'grid');
-      if (isLayout) {
-        const children = Array.from(parent.children);
-        const idx = children.findIndex(child => child === videoHost || child.contains(videoHost));
-        if (idx > -1) {
-          for (let i = idx - 1; i >= 0; i--) {
-            const sibling = children[i];
-            if (!sibling || sibling === videoHost) continue;
-            if (sibling.contains(videoHost)) continue;
-            if (sibling.querySelector('video')) continue;
-            if (videoRect && sibling.getBoundingClientRect) {
-              const rect = sibling.getBoundingClientRect();
-              if (rect.width === 0 && rect.height === 0) continue;
-              if (rect.right > (videoRect.left + 20)) continue;
-            }
-            const text = (sibling.textContent || '').trim();
-            if (text.length < 20 && !sibling.querySelector('[data-testid], [data-scene-id], .tag-chip, table, .MuiChip-root, .key-value-row')) continue;
-            return sibling;
-          }
-        }
-      }
-      parent = parent.parentElement;
-    }
-
-    return null;
+  function findEditPanelContainer() {
+    if (!/^\/scenes\/\d+\/?$/.test(window.location.pathname)) return null;
+    const selected = document.querySelector('[role="tab"][data-rb-event-key="scene-edit-panel"][aria-selected="true"]');
+    if (!selected) return null;
+    return document.querySelector('#scene-edit-details .edit-buttons-container') || document.querySelector('#scene-edit-details');
   }
   function clearOverlay() {
     document.querySelectorAll('.frp-overlay').forEach(n => n.remove());
@@ -1383,60 +1236,12 @@
   }
 
   // ---------------- Bild-URL: bytes-mode via backend ----------------
-  function bytesEndpointFor(name) {
-    const info = buildApiUrl('resolve_image', {
-      name,
-      source: pluginSettings.image_source,
-      stashdb_endpoint: pluginSettings.stashdb_endpoint,
-      metadata_source: pluginSettings.metadata_source,
-      format: 'bytes'
-    });
-    if (info.error) {
-      throw info.error;
-    }
-    return info.href;
-  }
-
   async function resolveImageURL(name, signal) {
     const cached = getCachedImageHref(name);
     if (cached !== undefined) return cached;
-
-    let endpoint;
-    try {
-      endpoint = bytesEndpointFor(name);
-    } catch (err) {
-      console.error('Kunde inte bygga bild-URL:', err);
-      storeImageCache(name, null);
-      return null;
-    }
-
-    try {
-      const resp = await fetch(endpoint, { signal });
-      if (resp.status === 204) {
-        storeImageCache(name, null);
-        return null;
-      }
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}`);
-      }
-      const blob = await resp.blob();
-      if (!blob || !blob.size) {
-        storeImageCache(name, null);
-        return null;
-      }
-      const buffer = await blob.arrayBuffer();
-      const base64 = arrayBufferToBase64(buffer);
-      const contentType = resp.headers.get('Content-Type') || 'image/jpeg';
-      const dataUrl = `data:${contentType};base64,${base64}`;
-      storeImageCache(name, { href: dataUrl, objectUrl: false });
-      return dataUrl;
-    } catch (err) {
-      if (err?.name === 'AbortError') {
-        throw err;
-      }
-      console.error('Kunde inte hämta preview-bild:', err);
-      return null;
-    }
+    const href = await nativeMetadata.image(name, pluginSettings, signal);
+    storeImageCache(name, href ? { href, objectUrl: false } : null);
+    return href;
   }
 
   // ---------------- Hover-preview per rad ----------------
@@ -1720,11 +1525,6 @@
     btn.addEventListener('contextmenu', e => { e.preventDefault(); createSettingsPanel(); });
     return btn;
   }
-  function resetFabAnchors() {
-    document.querySelectorAll('.frp-fab-anchor').forEach(node => {
-      if (!node.querySelector('.frp-fab')) node.classList.remove('frp-fab-anchor');
-    });
-  }
   function ensurePanelPlacement(btn, panelHost) {
     btn.classList.add('frp-fab--panel');
     btn.classList.remove('frp-fab--floating', 'frp-fab--global');
@@ -1751,67 +1551,21 @@
       }
     }
   }
-  function ensureFloatingPlacement(btn, host) {
-    btn.classList.add('frp-fab--floating');
-    btn.classList.remove('frp-fab--panel');
-
-    const wrap = btn.closest('.frp-fab-wrapper');
-    if (wrap) {
-      wrap.replaceWith(btn);
-    }
-
-    if (btn.parentElement !== host) {
-      host.appendChild(btn);
-    }
-
-    if (host === document.body) {
-      btn.classList.add('frp-fab--global');
-    } else {
-      btn.classList.remove('frp-fab--global');
-      const cs = window.getComputedStyle(host);
-      if (cs.position === 'static') {
-        host.classList.add('frp-fab-anchor');
-      }
-    }
-  }
   function addPluginButton() {
-    const panelHost = findInfoPanelContainer();
-    const fallbackHost = findVideoContainer() || document.body;
-    const host = panelHost || fallbackHost;
-    if (!host) return;
-
+    const panelHost = findEditPanelContainer();
     let btn = document.querySelector('.frp-fab');
-    if (btn) {
-      if (panelHost && panelHost.contains(btn)) {
-        ensurePanelPlacement(btn, panelHost);
-        return;
-      }
-      if (!panelHost && host.contains(btn) && btn.classList.contains('frp-fab--floating')) {
-        ensureFloatingPlacement(btn, host);
-        return;
-      }
-      const wrap = btn.closest('.frp-fab-wrapper');
-      if (wrap) {
-        wrap.remove();
-      } else {
-        btn.remove();
-      }
-    } else {
-      btn = createPluginButton();
+    if (!panelHost) {
+      document.querySelectorAll('.frp-fab-wrapper, .frp-fab').forEach(node => node.remove());
+      return;
     }
-
-    resetFabAnchors();
-
-    if (panelHost) {
-      ensurePanelPlacement(btn, panelHost);
-    } else {
-      ensureFloatingPlacement(btn, host);
-    }
+    if (!btn) btn = createPluginButton();
+    ensurePanelPlacement(btn, panelHost);
   }
 
   // ---------------- Huvudflöde ----------------
   async function performFaceRecognition() {
     if (recognitionInFlight) return;
+    const scenePath = window.location.pathname;
     try {
       const video = findVideoElement(); if (!video) return notify('Ingen video hittad', true);
       if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
@@ -1826,38 +1580,20 @@
       const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
       if (!blob) return notify('Kunde inte skapa bild', true);
 
-      const fd = new FormData();
-      fd.append('image', new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
-      const ctrl = new AbortController();
-
-      const timeoutMs = Math.max(3, pluginSettings.api_timeout) * 1000;
-      let timeoutHandle = null;
-      let apiInfo = null;
       try {
-        timeoutHandle = setTimeout(() => ctrl.abort(), timeoutMs);
-        // Request every detected face; the plugin applies its own confidence filter.
-        // The API's default gender filter can otherwise silently discard all results.
-        apiInfo = buildApiUrl('recognize', { top_k: pluginSettings.max_suggestions || 3, raw_faces: 1 });
-        if (apiInfo?.error) {
-          console.error('Ogiltig API-URL:', apiInfo.error);
-          notify(apiInfo.error.message, true);
-          return;
-        }
-        const resp = await fetch(apiInfo.href, { method: 'POST', body: fd, signal: ctrl.signal });
-        if (!resp.ok) throw new Error(`API-fel ${resp.status}`);
-        const data = await resp.json();
-        if (!Array.isArray(data)) throw new Error('API:t returnerade ett ogiltigt svar');
+        const data = await globalThis.FaceRecognitionStandalone.recognize(pluginId, blob, pluginSettings.max_suggestions || 3, pluginSettings.api_timeout * 1000, pluginSettings.compute_backend);
+        // Discard a completed analysis after navigation; never apply it to a new scene.
+        if (window.location.pathname !== scenePath) return;
+        if (!Array.isArray(data)) throw new Error('Analysmotorn returnerade ett ogiltigt svar');
         renderRecognizeOverlay(data);
         if (!data.length) notify('Inga ansikten hittades i bildrutan. Prova en annan bildruta.');
       } catch (err) {
         if (err.name === 'AbortError') {
-          notify('API-timeout uppnådd', true);
+          notify('Analystimeout uppnådd', true);
         } else {
           console.error(err);
           notify(`Fel vid ansiktsigenkänning: ${err.message || err}`, true);
         }
-      } finally {
-        if (timeoutHandle) clearTimeout(timeoutHandle);
       }
     } catch (e) {
       console.error('Oväntat fel i performFaceRecognition:', e);
@@ -1869,7 +1605,7 @@
 
   function observePlayerMounts() {
     let pending = null;
-    const selector = 'video, .video-js, .scene-tabs, .scene-info, .scene-info-panel, .scene-details-panel, [data-testid="scene-details-panel"], .SceneDetails, .SceneInfoPanel, .frp-fab';
+    const selector = 'video, .video-js, .scene-tabs, #scene-edit-details, [role="tab"], .frp-fab';
     const relevant = node => node.nodeType === 1 &&
       (node.matches(selector) || !!node.querySelector(selector));
     const schedule = () => {
@@ -1877,9 +1613,10 @@
       pending = setTimeout(() => { pending = null; addPluginButton(); }, 100);
     };
     const observer = new MutationObserver(records => {
-      if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(relevant))) schedule();
+      if (records.some(record => record.type === 'attributes' ? relevant(record.target) : [...record.addedNodes, ...record.removedNodes].some(relevant))) schedule();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-selected'] });
+    globalThis.PluginApi?.Event?.addEventListener('stash:location', schedule);
     addPluginButton();
   }
 

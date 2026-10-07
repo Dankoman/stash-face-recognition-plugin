@@ -16,7 +16,11 @@ function setup(options={}) {
  const schema={performerInput:{inputFields:Object.entries(types).map(([name,type])=>({name,type}))},performerOutput:{fields:['id','image_path',...Object.keys(types)].map(name=>({name}))},performerUpdate:{inputFields:['id',...Object.keys(types)].map(name=>({name}))},genderEnum:{enumValues:[{name:'FEMALE'},{name:'MALE'},{name:'TRANS_FEMALE'}]}};
  const fixture=options.metadata || metadata;
  const response=(data,status=200)=>({ok:status>=200&&status<300,status,json:async()=>data,text:async()=>JSON.stringify(data)});
- const ctx={URL,Blob,File,FormData,AbortController,Uint8Array,btoa:value=>Buffer.from(value,'binary').toString('base64'),setTimeout:()=>1,clearTimeout(){},console:{debug(){},warn(){},error(){}},window:{location:{origin:'https://stash.test',protocol:'https:'},addEventListener(){}},document:{createElement:()=>({style:{},remove(){}}),body:{appendChild:el=>notifications.push(el.textContent)}},fetch:async(url,opts={})=>{
+ const ctx={FaceRecognitionStandalone:{metadataClient:()=>({lookup:async()=>{
+  if(options.metadataStatus===404)return null;
+  if(options.metadataStatus && options.metadataStatus!==200)throw new Error('metadata unavailable');
+  return fixture;
+ }})},URL,Blob,File,FormData,AbortController,Uint8Array,btoa:value=>Buffer.from(value,'binary').toString('base64'),setTimeout:()=>1,clearTimeout(){},console:{debug(){},warn(){},error(){}},window:{location:{origin:'https://stash.test',protocol:'https:'},addEventListener(){}},document:{createElement:()=>({style:{},remove(){}}),body:{appendChild:el=>notifications.push(el.textContent)}},fetch:async(url,opts={})=>{
   requests.push({url,opts});
   if(url==='/graphql') {
    const body=JSON.parse(opts.body);
@@ -34,14 +38,14 @@ function setup(options={}) {
  return {api:ctx.api,requests,mutations,notifications};
 }
 
-test('imports every supported metadata field, all aliases and an inline profile image',async()=>{
+test('imports every supported metadata field, all aliases and a native Stash image URL',async()=>{
  const t=setup();await t.api.create('Synthetic Person',['Extra Alias']);
  assert.equal(t.mutations.length,1);const input=t.mutations[0].variables.input;
  assert.deepEqual(input.alias_list,['Alias One','Alias Two','Extra Alias']);
  for(const [key,value] of Object.entries({name:'Synthetic Person',disambiguation:'synthetic fixture',gender:'FEMALE',ethnicity:'MIXED',country:'SE',birthdate:'1990-01-02',death_date:'2020-03-04',hair_color:'AUBURN',eye_color:'GREEN',height_cm:170,weight:60,measurements:'34C-24-35',fake_tits:'NATURAL',career_start:'2010',career_end:'2019',tattoos:'arm: test',piercings:'ear: test',details:'Synthetic test metadata'}))assert.equal(input[key],value,key);
  assert.deepEqual(input.urls,['https://example.test/profile']);
  assert.deepEqual(input.stash_ids,[{stash_id:'external-test-id',endpoint:'https://stashdb.org/graphql'}]);
- assert.equal(input.image,'data:image/png;base64,'+Buffer.from('synthetic image').toString('base64'));
+ assert.equal(input.image,metadata.image_url);
 });
 test('legacy aliases String retains every alias',async()=>{
  const t=setup({legacyAliases:true});await t.api.create('Synthetic Person',[]);
@@ -51,30 +55,26 @@ test('a rejected create is not retried with metadata stripped',async()=>{
  const t=setup({mutationError:true});await assert.rejects(t.api.create('Synthetic Person',[]),/invalid imported field/);
  assert.equal(t.mutations.length,1);assert.ok(t.mutations[0].variables.input.image);
 });
-test('an unavailable image cannot create an incomplete performer',async()=>{
- const t=setup({imageFailure:true});await assert.rejects(t.api.create('Synthetic Person',[]),/Profilbilden/);assert.equal(t.mutations.length,0);
-});
-test('an HTML error masquerading as HTTP 200 cannot become a profile image',async()=>{
- const t=setup({imageMime:'text/html'});await assert.rejects(t.api.create('Synthetic Person',[]),/Profilbilden/);assert.equal(t.mutations.length,0);
+test('native image download failure rejects the create without a bare-name retry',async()=>{
+ const t=setup({mutationError:true});await assert.rejects(t.api.create('Synthetic Person',[]),/invalid imported field/);
+ assert.equal(t.mutations.length,1);assert.equal(t.mutations[0].variables.input.image,metadata.image_url);
 });
 test('metadata service and schema failures do not create bare-name records',async()=>{
  for(const options of [{metadataStatus:502},{schemaError:true}]) {
   const t=setup(options);await assert.rejects(t.api.create('Synthetic Person',[]));assert.equal(t.mutations.length,0);
  }
 });
-test('CORS failure falls back to the matched metadata provider, never the local placeholder',async()=>{
+test('image downloads are delegated to Stash, with no browser CORS or Go proxy request',async()=>{
  const t=setup({directBlocked:true});await t.api.create('Synthetic Person',[]);
- const request=t.requests.find(r=>r.url.includes('/resolve_image'));assert.ok(request);
- assert.equal(new URL(request.url).searchParams.get('source'),'stashdb');
- assert.equal(new URL(request.url).searchParams.get('stashdb_endpoint'),'https://stashdb.org/graphql');
- assert.ok(t.mutations[0].variables.input.image.startsWith('data:image/png;'));
+ assert.equal(t.mutations[0].variables.input.image,metadata.image_url);
+ assert.ok(t.requests.every(r=>r.url==='/graphql'));
 });
 const current={id:'42',name:'Locally edited name',hair_color:'Blue',country:'NO',image_path:'https://stash.test/performer/42/image?default=true',alias_list:['Local Alias'],urls:['https://example.test/local'],stash_ids:[{stash_id:'external-test-id',endpoint:'https://stashdb.org/graphql'}]};
 test('a linked existing profile receives missing data and image without overwriting local values',async()=>{
  const t=setup({current});await t.api.complete({id:'42'},'Synthetic Person',[]);
  const input=t.mutations[0].variables.input;assert.equal(input.id,'42');
  assert.equal(input.name,undefined);assert.equal(input.hair_color,undefined);assert.equal(input.country,undefined);
- assert.equal(input.eye_color,'GREEN');assert.ok(input.image.startsWith('data:image/png;'));
+ assert.equal(input.eye_color,'GREEN');assert.equal(input.image,metadata.image_url);
  assert.deepEqual(input.alias_list,['Local Alias','Alias One','Alias Two']);
  assert.deepEqual(input.urls,['https://example.test/local','https://example.test/profile']);
  assert.equal(input.stash_ids,undefined);

@@ -1,41 +1,41 @@
-# Installation
+# Installation av 3.0-experimentet
 
-## Server
+## Komplett pluginpaket
 
-Kör Stash och StashAPI. API:t behöver befintliga ONNX-modeller och exporterad KNN-data. Träning och modelluppdateringar hör till servern, inte webbläsarpluginet.
+1. Säkerhetskopiera den installerade pluginmappen och dess inställningar.
+2. Packa upp `dist/face-recognition-3.0.0-dev.zip` i den befintliga `face-recognition`-pluginmappen. Behåll `assets/` och dess underkataloger; de innehåller alla analysfiler.
+3. Klicka **Reload plugins** i Stash och ladda om webbläsarsidan.
+4. Öppna en scen, välj **Edit**, högerklicka **Identifiera** och välj **Testa analysmotor**.
+5. Kontrollera analysen på en pausad bildruta och att det inte finns någon Identifiera-knapp på Details eller Settings.
 
-Konfigurera en `/face-api/`-väg under Stashs befintliga HTTPS-proxy, med vidarebefordran till Go-tjänsten. Vägen ska kontrollera Stash-inloggningen innan anropet skickas vidare. Ett exempel för den aktuella installationen finns i StashAPI-repot under `deployment/nginx-face-api.conf`.
+Ingen extern process startas av pluginet. `/face-api` används inte. Tidigare API URL-inställning ignoreras. Befintliga funktionella inställningar behålls; den gamla API-timeouten ersätts vid första inläsning med 180 sekunder eftersom modellerna nu laddas i webbläsaren.
 
-Anonyma anrop till `/face-api/api/health` ska få 401. Med Stash-inloggning ska svaret vara 200 och `model_loaded: true`. API 1.9 returnerar 503 om analysmotorn inte är redo.
+Metadata behöver de källor du vill använda under Stashs **Settings → Metadata Providers → Stash-Box Endpoints**. Befintliga nycklar i StashAPI:s miljöfil migreras inte automatiskt till Stash. Pluginet läser inga nycklar och fungerar för analys utan externa metadatakällor. Källornas vanliga konton/nycklar behövs fortfarande för extern metadata.
 
-Spara API-nycklar i en skyddad serverfil, exempelvis `/var/lib/stashapi/metadata.env` med rättighet 0600, och ange den som tjänstens `EnvironmentFile`:
+## Uppdatering och återställning
 
-```dotenv
-STASH_API_KEY="..."
-STASHDB_API_KEY="..."
-TPDB_API_KEY="..."
-PMVSTASH_API_KEY="..."
-FANSDB_API_KEY="..."
-```
+Byt hela pluginpaketet, ladda om plugins och webbsidan efter en uppdatering. Igenkänningsdatabasen är en ögonblicksbild i paketet: nya träningsresultat behöver paketeras som en uppdatering. Pluginet läser inte en levande Python-pickle eller Go-exportkatalog på servern.
 
-Behåll dina faktiska värden; lägg inte filen i Git eller Nix-källkoden. Starta om API-tjänsten efter ändring.
+Återställ den säkerhetskopierade pluginmappen och inställningarna för att återgå till 2.4.2. Den befintliga Go-tjänsten har inte ändrats av detta experiment.
 
-## Plugin
+## Bygga paketet (enbart utvecklare)
 
-1. Säkerhetskopiera de tre befintliga pluginfilerna och pluginets inställningar.
-2. Lägg JS-, CSS- och YAML-filerna från ZIP-paketet i Stashs pluginskatalog.
-3. Ladda om plugins i Stash och ladda om webbsidan.
-4. Sätt **API URL** till `/face-api`.
-5. Högerklicka på **Identifiera** och välj **Testa anslutning**.
+Python och npm behövs bara på byggdatorn. Slutanvändaren installerar ZIP-paketet.
 
-Vid uppgradering från 2.3: flytta först metadata-nycklarna från plugininställningarna till API-tjänsten och verifiera att servern läst dem. Därefter kan de gamla nyckelfälten tömmas. Plugin 2.4 använder inte dessa fält. Övriga inställningar ska bevaras.
+- Hämta `onnxruntime-web@1.24.3` från npm med `npm pack`.
+- Lägg `ort.webgpu.bundle.min.mjs`, båda `ort-wasm-simd-threaded.jsep.*`, båda `ort-wasm-simd-threaded.asyncify.*` samt ONNX Runtimes MIT-licens i `assets/runtime/`.
+- Lägg `det_10g.onnx` och `w600k_r50.onnx` från befintlig buffalo_l-installation i `assets/models/`.
+- Lägg `embeddings.bin` och `labels.json` från din befintliga export i `assets/gallery/`.
+- Kör `python tools/build-package.py`. Valfria flaggor: `--models`, `--gallery`, `--runtime`, `--output`.
+
+Byggaren verifierar databasens storlek, skapar en filmanifest med SHA-256, kontrollerar ZIP-integriteten och skriver en separat checksumma. Genererade modeller, privat igenkänningsdata, runtimefiler och paket ignoreras av Git. Koden och byggaren ligger i experimentgrenen.
 
 ## Felsökning
 
-- **401:** Stash-sessionen saknas eller har gått ut. Logga in igen.
-- **502:** Nginx når inte Go-tjänsten.
-- **503 / modellen inte laddad:** läs loggen för `stashapi.service` och kontrollera modellfilerna.
-- **Timeout:** kontrollera API-tjänstens logg och belastning. Öka timeout vid behov.
-- **Inga ansikten:** API:t svarade med en tom lista; välj en annan bildruta.
+- **Pluginfil saknas:** installera hela ZIP-innehållet inklusive `assets/`.
+- **Modellstart/CSP-fel:** kontrollera att pluginets CSP laddats efter Reload plugins. WebAssembly behöver `wasm-unsafe-eval`; arbetaren behöver `worker-src 'self'`.
+- **Långsam analys:** motortestet visar aktiv backend. CPU fungerar utan extra program men kan vara långsammare än GPU.
+- **Metadatakälla saknas:** konfigurera Stash-box i Stash, inte i Go-tjänsten.
+- **Tomma resultat:** testa en tydligare pausad bildruta; en tom bild ger en tom resultatlista.
 
-Återställ gamla pluginfiler och inställningar från samma backup om en uppdatering behöver backas.
+Experimentet är ännu inte verifierat på Windows, AMD/Nvidia-GPU eller med full metadataimport i den aktiva Stash-installationen.
