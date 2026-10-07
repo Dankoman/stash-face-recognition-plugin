@@ -1,8 +1,9 @@
 'use strict';
-importScripts('recognition-core.js');
+const assetBase=self.FaceRecognitionAssetBase || self.location.href;
+importScripts(new URL('recognition-core.js',assetBase).href);
 const core = self.FaceRecognitionCore;
 let ort, detector, recognizer, embeddings, labels, backend, initialization;
-const asset = path => new URL(path, self.location.href).href;
+const asset = path => new URL(path, assetBase).href;
 async function read(path, kind) {
   const response = await fetch(asset(path), {credentials:'same-origin'});
   if(!response.ok) throw new Error(`Pluginfil saknas: ${path} (${response.status})`);

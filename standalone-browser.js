@@ -1,16 +1,21 @@
 (function(root) {
   'use strict';
-  let worker=null, sequence=0;
+  let worker=null, workerURL=null, sequence=0;
   const pending=new Map();
   function reset(reason) {
     if(worker) worker.terminate(); worker=null;
+    if(workerURL) URL.revokeObjectURL(workerURL); workerURL=null;
     for(const request of pending.values()) { clearTimeout(request.timer); request.reject(reason); }
     pending.clear();
   }
   function request(pluginId,type,payload={},timeout=180000) {
     if(!pluginId) return Promise.reject(new Error('Pluginets ID är inte laddat. Ladda om Stash.'));
     if(!worker) {
-      worker=new Worker(`/plugin/${encodeURIComponent(pluginId)}/assets/face/recognition-worker.js`);
+      const base=new URL(`/plugin/${encodeURIComponent(pluginId)}/assets/face/`,root.location.href).href;
+      // Stash permits blob workers; its plugin CSP format cannot add worker-src.
+      const bootstrap=`self.FaceRecognitionAssetBase=${JSON.stringify(base)};importScripts(${JSON.stringify(base+'recognition-worker.js')});`;
+      workerURL=URL.createObjectURL(new Blob([bootstrap],{type:'text/javascript'}));
+      worker=new Worker(workerURL);
       worker.onmessage=({data})=>{
         if(data.status) { console.info('[Face Recognition]',data.status); return; }
         const entry=pending.get(data.id); if(!entry) return;
