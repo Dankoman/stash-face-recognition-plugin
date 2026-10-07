@@ -1,4 +1,4 @@
-# Face Recognition Plugin 3.0.0-dev.3
+# Face Recognition Plugin 3.0.0-dev.4
 
 Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och din exporterade igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
 
@@ -24,11 +24,11 @@ Matchning använder exporterade 512-dimensionella embeddings och cosinusavstånd
 
 Stashs egna GraphQL-uppslag används för konfigurerade Stash-box-källor: StashDB, ThePornDB, PMVStash och FansDB. API-nycklar begärs inte av pluginet. Konfigurera önskade källor under **Settings → Metadata Providers → Stash-Box Endpoints**; inga separata scrapers behöver installeras.
 
-Primärkällan provas först, följd av övriga konfigurerade källor. Exakta namn eller alias krävs. Tvetydiga träffar stoppas. Ett källfel skiljs från en lyckad sökning utan träff, så ett fel inte skapar en person med enbart namn. Alla fält som Stash exponerar genom `ScrapedPerformer` och accepterar vid import följer med. Bilder hämtas av Stash vid skapande/uppdatering, vilket undviker webbläsarens CORS-problem. Komplettering bevarar ifyllda lokala fält och kräver samma externa identitet.
+Primärkällan provas först, följd av övriga konfigurerade källor. Exakta namn eller alias krävs. Befintliga personer matchas med sina sparade externa ID:n, så två personer med samma namn inte förväxlas. En person som redan finns i scenen kräver inget metadatauppslag. Tvetydiga träffar utan en sparad identitet stoppas. Ett källfel skiljs från en lyckad sökning utan träff, så ett fel inte skapar en person med enbart namn. Alla fält som Stash exponerar genom `ScrapedPerformer` och accepterar vid import följer med. Bilder hämtas av Stash vid skapande/uppdatering, vilket undviker webbläsarens CORS-problem. Komplettering bevarar ifyllda lokala fält och kräver samma externa identitet.
 
 ## Installation
 
-Se [INSTALLATION.md](INSTALLATION.md). Det lokala experimentpaketet finns i `dist/face-recognition-3.0.0-dev.3.zip`. Det vanliga `index.yml` och gamla ZIP-arkivet är fortfarande för den stabila 2.4.2-versionen; använd experimentpaketet för denna gren.
+Se [INSTALLATION.md](INSTALLATION.md). Det lokala experimentpaketet finns i `dist/face-recognition-3.0.0-dev.4.zip`. Denna grens `index.yml` publicerar experimentversionen för uppgradering via Stash.
 
 ## Verifiering
 

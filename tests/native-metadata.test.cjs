@@ -34,3 +34,37 @@ test('preferred metadata source is tried first with fallback through native prov
  const {client,calls}=setup({boxes:[{name:'StashDB',endpoint:'https://stashdb.org/graphql'},{name:'ThePornDB',endpoint:'https://theporndb.net/graphql'}]});
  await client.lookup('Synthetic Person',[],{metadata_source:'tpdb'});assert.equal(calls[1].variables.source.stash_box_endpoint,'https://theporndb.net/graphql');
 });
+
+const sameNameRows=[{name:'Synthetic Person',remote_site_id:'other-person'},{name:'Synthetic Person',remote_site_id:'linked-person'}];
+const linkedIdentity={stash_ids:[{endpoint:'https://stashdb.org/graphql/',stash_id:'linked-person'}]};
+test('saved source ID resolves two exact name matches to the linked person',async()=>{
+ const {client}=setup({rows:sameNameRows});
+ const result=await client.lookup('Synthetic Person',[],{},undefined,linkedIdentity);
+ assert.equal(result.performer.id,'linked-person');
+ await assert.rejects(client.lookup('Synthetic Person'),/tvetydig/);
+});
+test('a saved ID is authoritative after a remote name change',async()=>{
+ const {client}=setup({rows:[sameNameRows[0],{...sameNameRows[1],name:'Changed Name'}]});
+ assert.equal((await client.lookup('Synthetic Person',[],{},undefined,linkedIdentity)).performer.id,'linked-person');
+});
+test('a missing saved identity never selects the other same-name person',async()=>{
+ const {client}=setup({rows:[sameNameRows[0]]});
+ assert.equal(await client.lookup('Synthetic Person',[],{},undefined,linkedIdentity),null);
+});
+test('same-name identities have separate cache entries',async()=>{
+ const {client}=setup({rows:sameNameRows});
+ assert.equal((await client.lookup('Synthetic Person',[],{},undefined,linkedIdentity)).performer.id,'linked-person');
+ const other={stash_ids:[{endpoint:'https://stashdb.org/graphql',stash_id:'other-person'}]};
+ assert.equal((await client.lookup('Synthetic Person',[],{},undefined,other)).performer.id,'other-person');
+});
+test('duplicate rows for one remote ID are a single identity',async()=>{
+ const {client}=setup({rows:[sameNameRows[1],sameNameRows[1]]});
+ assert.equal((await client.lookup('Synthetic Person')).performer.id,'linked-person');
+});
+
+test('enrichment only searches sources linked to the existing identity',async()=>{
+ const {client,calls}=setup({rows:sameNameRows,boxes:[{name:'ThePornDB',endpoint:'https://theporndb.net/graphql'},{name:'StashDB',endpoint:'https://stashdb.org/graphql'}]});
+ const result=await client.lookup('Synthetic Person',[],{metadata_source:'tpdb'},undefined,linkedIdentity);
+ assert.equal(result.performer.id,'linked-person');
+ assert.equal(calls[1].variables.source.stash_box_endpoint,'https://stashdb.org/graphql');
+});

@@ -3,7 +3,7 @@
 ## Komplett pluginpaket
 
 1. Säkerhetskopiera den installerade pluginmappen och dess inställningar.
-2. Packa upp `dist/face-recognition-3.0.0-dev.3.zip` i den befintliga `face-recognition`-pluginmappen. Behåll `assets/` och dess underkataloger; de innehåller alla analysfiler.
+2. Packa upp `dist/face-recognition-3.0.0-dev.4.zip` i den befintliga `face-recognition`-pluginmappen. Behåll `assets/` och dess underkataloger; de innehåller alla analysfiler.
 3. Klicka **Reload plugins** i Stash och ladda om webbläsarsidan.
 4. Öppna en scen, välj **Edit**, högerklicka **Identifiera** och välj **Testa analysmotor**.
 5. Kontrollera analysen på en pausad bildruta och att det inte finns någon Identifiera-knapp på Details eller Settings.

@@ -359,10 +359,10 @@
   }
 
   const nativeMetadata = globalThis.FaceRecognitionStandalone.metadataClient(stashGraphQL);
-  async function fetchStashdbMetadata(name, aliasCandidates) {
+  async function fetchStashdbMetadata(name, aliasCandidates, identity = {}) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), pluginSettings.api_timeout * 1000);
-    try { return await nativeMetadata.lookup(normalizeCandidateName(name), aliasCandidates || [], pluginSettings, ctrl.signal); }
+    try { return await nativeMetadata.lookup(normalizeCandidateName(name), aliasCandidates || [], pluginSettings, ctrl.signal, identity); }
     finally { clearTimeout(timer); }
   }
 
@@ -372,10 +372,10 @@
     return { [field]: caps.listFields?.has(field) ? aliases : aliases.join(', ') };
   }
 
-  async function buildPerformerCreateInput(normalizedName, aliasCandidates, { includeImage = true } = {}) {
+  async function buildPerformerCreateInput(normalizedName, aliasCandidates, { includeImage = true, identity = {} } = {}) {
     const caps = await ensurePerformerSchemaCaps();
     const canUse = field => canUseInputField(caps, field);
-    const metadata = await fetchStashdbMetadata(normalizedName, aliasCandidates);
+    const metadata = await fetchStashdbMetadata(normalizedName, aliasCandidates, identity);
     const input = {};
     if (!metadata) {
       return { input, metadata: null, caps, canonicalName: normalizedName, imageStrategy: { mode: 'none', url: null } };
@@ -925,14 +925,20 @@
   }
 
   async function completeExistingPerformer(performer, name, aliases) {
-    const result = await buildPerformerCreateInput(name, aliases, { includeImage: false });
+    const caps = await ensurePerformerSchemaCaps();
+    const identityFields = ['id', 'name', 'stash_ids'].filter(key => caps.outputFields.has(key))
+      .map(key => key === 'stash_ids' ? 'stash_ids { endpoint stash_id }' : key).join(' ');
+    if (!caps.outputFields.has('stash_ids')) return performer;
+    const identityData = await stashGraphQL(`query($id:ID!){findPerformer(id:$id){${identityFields}}}`, { id: String(performer.id) });
+    const identity = identityData?.findPerformer;
+    if (!identity || !(identity.stash_ids || []).length) return performer;
+    const result = await buildPerformerCreateInput(name, aliases, { includeImage: false, identity });
     if (!result.metadata) return performer;
-    const { caps, input, metadata, canonicalName } = result;
+    const { input, metadata } = result;
     const fields = Object.keys(input).filter(key => caps.outputFields.has(key) && caps.updateFields.has(key));
     const selection = uniqueStrings(['id', 'name', 'image_path', 'stash_ids', ...fields])
       .filter(key => caps.outputFields.has(key))
       .map(key => key === 'stash_ids' ? 'stash_ids { endpoint stash_id }' : key).join(' ');
-    if (!selection) return performer;
     const data = await stashGraphQL(`query($id:ID!){findPerformer(id:$id){${selection}}}`, { id: String(performer.id) });
     const current = data?.findPerformer;
     if (!current) return performer;
@@ -960,7 +966,14 @@
 
     const aliasCandidates = generateAliasCandidates(name);
     let perf = await findPerformerByName(name);
-    if (perf) perf = await completeExistingPerformer(perf, name, aliasCandidates);
+    if (perf) {
+      const scenePerformers = await getScenePerformerIds(sceneId);
+      if (scenePerformers.includes(parseInt(perf.id, 10))) {
+        notify(`"${perf.name}" finns redan i scenen`);
+        return;
+      }
+      perf = await completeExistingPerformer(perf, name, aliasCandidates);
+    }
     if (!perf) {
       try {
         perf = await createPerformerIfAllowed(name, aliasCandidates);

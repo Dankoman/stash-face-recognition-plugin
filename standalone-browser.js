@@ -62,13 +62,17 @@
       }).catch(error=>{discovery=null;throw error;});
       return discovery;
     }
-    async function lookup(name,aliases=[],settings={},signal) {
-      const key=JSON.stringify([name,aliases,settings.metadata_source,settings.stashdb_endpoint]);
+    async function lookup(name,aliases=[],settings={},signal,identity={}) {
+      const key=JSON.stringify([name,aliases,settings.metadata_source,settings.stashdb_endpoint,identity.stash_ids||[]]);
       if(cache.has(key)) return cache.get(key);
       const config=await sources();
       if(!config.sources.length) throw new Error('Konfigurera en metadatakälla under Stash → Settings → Metadata Providers → Stash-Box Endpoints.');
       const preferred=sourceNames[settings.metadata_source]||'stashdb';
-      const ordered=[...config.sources].sort((a,b)=>{
+      const linkedEndpoints=new Set((identity.stash_ids||[]).map(p=>String(p.endpoint||'').replace(/\/+$/,'')));
+      const available=linkedEndpoints.size
+        ? config.sources.filter(source=>linkedEndpoints.has(String(source.endpoint||'').replace(/\/+$/,'')))
+        : config.sources;
+      const ordered=[...available].sort((a,b)=>{
         const priority=s=>clean(s.name+' '+(s.endpoint||'')).includes(preferred)?0:s.endpoint===settings.stashdb_endpoint?1:2;
         return priority(a)-priority(b);
       });
@@ -78,7 +82,20 @@
           if(signal?.aborted) throw new DOMException('Avbruten','AbortError');
           try {
             const data=await gql(`query($source:ScraperSourceInput!,$input:ScrapeSinglePerformerInput!){scrapeSinglePerformer(source:$source,input:$input){${config.fields}}}`,{source:source.source,input:{query:term}},{signal});
-            const matches=(data.scrapeSinglePerformer||[]).filter(p=>[p.name,...String(p.aliases||'').split(',')].some(n=>targets.has(clean(n))));
+            const expectedIds=new Set((identity.stash_ids||[])
+              .filter(p=>String(p.endpoint||'').replace(/\/+$/,'')===String(source.endpoint||'').replace(/\/+$/,''))
+              .map(p=>p.stash_id));
+            const rows=data.scrapeSinglePerformer||[];
+            // A saved external ID is authoritative even if names or aliases changed.
+            const candidates=expectedIds.size
+              ? rows.filter(p=>expectedIds.has(p.remote_site_id))
+              : rows.filter(p=>[p.name,...String(p.aliases||'').split(',')].some(n=>targets.has(clean(n))));
+            const seen=new Set();
+            const matches=candidates.filter(p=>{
+              if(!p.remote_site_id) return true;
+              if(seen.has(p.remote_site_id)) return false;
+              seen.add(p.remote_site_id); return true;
+            });
             if(matches.length>1) { const error=new Error(`Flera exakta träffar hos ${source.name}; identiteten är tvetydig`); error.ambiguous=true; throw error; }
             if(matches.length===1) {
               const result=normalizeMetadata(matches[0],source,term);

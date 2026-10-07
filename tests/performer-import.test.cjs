@@ -10,21 +10,24 @@ const list = name => ({kind:'LIST',ofType:{kind:'NON_NULL',ofType:scalar(name)}}
 const fieldTypes = {name:scalar('String'),disambiguation:scalar('String'),alias_list:list('String'),urls:list('String'),stash_ids:list('StashIDInput'),gender:{kind:'ENUM',name:'GenderEnum'},ethnicity:scalar('String'),country:scalar('String'),birthdate:scalar('String'),death_date:scalar('String'),hair_color:scalar('String'),eye_color:scalar('String'),measurements:scalar('String'),height_cm:scalar('Int'),weight:scalar('Int'),career_start:scalar('String'),career_end:scalar('String'),tattoos:scalar('String'),piercings:scalar('String'),fake_tits:scalar('String'),image:scalar('String'),details:scalar('String')};
 const metadata = {source_endpoint:'https://stashdb.org/graphql',image_url:'https://images.example.test/profile.png',performer:{id:'external-test-id',name:'Synthetic Person',aliases:['Alias One','Alias Two'],disambiguation:'synthetic fixture',gender:'FEMALE',ethnicity:'MIXED',country:'SE',birthdate:'1990-01-02',death_date:'2020-03-04',hair_color:'AUBURN',eye_color:'GREEN',height:170,weight:60,measurements:'34C-24-35',breast_type:'NATURAL',career_start_year:2010,career_end_year:2019,tattoos:[{location:'arm',description:'test'}],piercings:[{location:'ear',description:'test'}],details:'Synthetic test metadata',urls:['https://example.test/profile']}};
 function setup(options={}) {
- const requests=[],mutations=[],notifications=[];
+ const requests=[],mutations=[],notifications=[],lookups=[];
  const types={...fieldTypes,...options.fieldTypes};
  if (options.legacyAliases) { delete types.alias_list; types.aliases=scalar('String'); }
  const schema={performerInput:{inputFields:Object.entries(types).map(([name,type])=>({name,type}))},performerOutput:{fields:['id','image_path',...Object.keys(types)].map(name=>({name}))},performerUpdate:{inputFields:['id',...Object.keys(types)].map(name=>({name}))},genderEnum:{enumValues:[{name:'FEMALE'},{name:'MALE'},{name:'TRANS_FEMALE'}]}};
  const fixture=options.metadata || metadata;
  const response=(data,status=200)=>({ok:status>=200&&status<300,status,json:async()=>data,text:async()=>JSON.stringify(data)});
- const ctx={FaceRecognitionStandalone:{metadataClient:()=>({lookup:async()=>{
+ const ctx={FaceRecognitionStandalone:{metadataClient:()=>({lookup:async(...args)=>{
+  lookups.push(args);
   if(options.metadataStatus===404)return null;
   if(options.metadataStatus && options.metadataStatus!==200)throw new Error('metadata unavailable');
   return fixture;
- }})},URL,Blob,File,FormData,AbortController,Uint8Array,btoa:value=>Buffer.from(value,'binary').toString('base64'),setTimeout:()=>1,clearTimeout(){},console:{debug(){},warn(){},error(){}},window:{location:{origin:'https://stash.test',protocol:'https:'},addEventListener(){}},document:{createElement:()=>({style:{},remove(){}}),body:{appendChild:el=>notifications.push(el.textContent)}},fetch:async(url,opts={})=>{
+ }})},location:{pathname:'/scenes/14220'},URL,Blob,File,FormData,AbortController,Uint8Array,btoa:value=>Buffer.from(value,'binary').toString('base64'),setTimeout:()=>1,clearTimeout(){},console:{debug(){},warn(){},error(){}},window:{location:{origin:'https://stash.test',protocol:'https:'},addEventListener(){}},document:{createElement:()=>({style:{},remove(){}}),body:{appendChild:el=>notifications.push(el.textContent)}},fetch:async(url,opts={})=>{
   requests.push({url,opts});
   if(url==='/graphql') {
    const body=JSON.parse(opts.body);
    if(body.query.includes('PerformerInputCaps')) return response(options.schemaError?{errors:[{message:'schema unavailable'}]}:{data:schema});
+   if(body.query.includes('findPerformers(')) return response({data:{findPerformers:{performers:options.localPerformers||[]}}});
+   if(body.query.includes('findScene(')) return response({data:{findScene:{performers:(options.scenePerformers||[]).map(id=>({id}))}}});
    if(body.query.includes('findPerformer(')) return response({data:{findPerformer:options.current}});
    mutations.push(body);
    if(options.mutationError)return response({errors:[{message:'invalid imported field'}]},422);
@@ -34,8 +37,8 @@ function setup(options={}) {
   if(options.imageFailure || (options.directBlocked && url.startsWith('https://images.')))throw new Error('image unavailable');
   return {ok:true,status:200,blob:async()=>new Blob(['synthetic image'],{type:options.imageMime||'image/png'})};
  }};
- vm.runInNewContext(source.replace(entry,`pluginSettings.create_new_performers=true; pluginSettings.image_source='local'; globalThis.api={create:createPerformerIfAllowed,build:buildPerformerCreateInput,complete:completeExistingPerformer,missing:profileImageMissing};`),ctx);
- return {api:ctx.api,requests,mutations,notifications};
+ vm.runInNewContext(source.replace(entry,`pluginSettings.create_new_performers=true; pluginSettings.image_source='local'; globalThis.api={create:createPerformerIfAllowed,build:buildPerformerCreateInput,complete:completeExistingPerformer,missing:profileImageMissing,add:addPerformerToSceneByName};`),ctx);
+ return {api:ctx.api,requests,mutations,notifications,lookups};
 }
 
 test('imports every supported metadata field, all aliases and a native Stash image URL',async()=>{
@@ -98,4 +101,25 @@ test('a missing external match creates a performer using only the detected name'
  assert.equal(t.mutations.length,1);
  assert.deepEqual(t.mutations[0].variables.input,{name:'Synthetic Person'});
  assert.ok(!t.requests.some(r=>r.url.includes('images.example')||r.url.includes('/resolve_image')));
+});
+
+test('an already attached performer skips ambiguous provider lookup and all mutations',async()=>{
+ const t=setup({localPerformers:[{id:'42',name:'Synthetic Person'}],scenePerformers:['42','17'],metadataStatus:502});
+ await t.api.add('Synthetic Person');
+ assert.equal(t.lookups.length,0);
+ assert.equal(t.mutations.length,0);
+ assert.ok(t.notifications.some(message=>/finns redan i scenen/.test(message)));
+});
+test('metadata enrichment passes the saved external identity before lookup',async()=>{
+ const t=setup({current});await t.api.complete({id:'42'},'Synthetic Person',[]);
+ assert.deepEqual(JSON.parse(JSON.stringify(t.lookups[0][4].stash_ids)),current.stash_ids);
+ assert.ok(t.requests.find(r=>r.url==='/graphql'&&JSON.parse(r.opts.body).query.includes('findPerformer(')));
+});
+test('an unlinked profile can be attached even when the metadata provider fails',async()=>{
+ const t=setup({localPerformers:[{id:'42',name:'Synthetic Person'}],current:{...current,stash_ids:[]},scenePerformers:['17'],metadataStatus:502});
+ await t.api.add('Synthetic Person');
+ assert.equal(t.lookups.length,0);
+ assert.equal(t.mutations.length,1);
+ assert.ok(t.mutations[0].query.includes('sceneUpdate('));
+ assert.deepEqual(t.mutations[0].variables.input,{id:'14220',performer_ids:[17,42]});
 });
