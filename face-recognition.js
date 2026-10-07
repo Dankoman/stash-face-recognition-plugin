@@ -18,7 +18,7 @@
     max_suggestions: 3,
     image_source: 'both', // local|stashdb|both (skickas till backend)
     stashdb_endpoint: 'https://stashdb.org/graphql',
-    metadata_source: 'stashdb', // stashdb|tpdb|pmvstash|fansdb
+    metadata_source: 'stashdb', // all|stashdb|tpdb|pmvstash|fansdb
   });
   let pluginSettings = { ...DEFAULT_SETTINGS };
 
@@ -53,8 +53,12 @@
         const text = String(value).trim();
         return text ? text : undefined;
       }
-      case 'image_source':
       case 'metadata_source': {
+        const text = String(value).trim().toLowerCase();
+        const normalized = text === 'alla' ? 'all' : text;
+        return ['all', 'stashdb', 'tpdb', 'pmvstash', 'fansdb'].includes(normalized) ? normalized : undefined;
+      }
+      case 'image_source': {
         const text = String(value).trim().toLowerCase();
         return text ? text : undefined;
       }
@@ -1070,8 +1074,15 @@
         <label>Bildkälla (local | stashdb | both):</label>
         <input type="text" id="fr-image-source" value="${escapeAttr(pluginSettings.image_source)}">
 
-        <label>Metadatakälla (stashdb | tpdb | pmvstash | fansdb):</label>
-        <input type="text" id="fr-metadata-source" value="${escapeAttr(pluginSettings.metadata_source)}">
+        <label for="fr-metadata-source">Metadatakälla:</label>
+        <select id="fr-metadata-source">
+          <option value="all" ${pluginSettings.metadata_source === 'all' ? 'selected' : ''}>Alla (StashDB → TPDB → PMVStash → FansDB)</option>
+          <option value="stashdb" ${pluginSettings.metadata_source === 'stashdb' ? 'selected' : ''}>StashDB först</option>
+          <option value="tpdb" ${pluginSettings.metadata_source === 'tpdb' ? 'selected' : ''}>TPDB först</option>
+          <option value="pmvstash" ${pluginSettings.metadata_source === 'pmvstash' ? 'selected' : ''}>PMVStash först</option>
+          <option value="fansdb" ${pluginSettings.metadata_source === 'fansdb' ? 'selected' : ''}>FansDB först</option>
+        </select>
+        <p>I läget Alla används första entydiga träffen i ordningen ovan. Källor som inte är konfigurerade hoppas över.</p>
 
         <label>StashDB endpoint:</label>
         <input type="text" id="fr-stashdb-endpoint" value="${escapeAttr(pluginSettings.stashdb_endpoint)}">
@@ -1091,7 +1102,7 @@
       .fr-sp-head{font-weight:600;padding:10px 12px;border-bottom:1px solid #2a2f39}
       .fr-sp-body{padding:12px}
       .fr-sp-body label{display:block;margin-top:10px;margin-bottom:6px;font-size:12px;color:#aab0bb}
-      .fr-sp-body input[type=text], .fr-sp-body input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid #2a2f39;background:#0f1115;color:#e5e7eb;box-sizing:border-box}
+      .fr-sp-body input[type=text], .fr-sp-body input[type=number], .fr-sp-body select{width:100%;padding:8px;border-radius:8px;border:1px solid #2a2f39;background:#0f1115;color:#e5e7eb;box-sizing:border-box}
       .fr-sp-body input::placeholder{color:#555;font-style:italic}
       .fr-sp-actions{display:flex;gap:8px;margin-top:14px}
       .fr-sp-actions button{background:#2a61ff;color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
@@ -1139,7 +1150,7 @@
       };
       if (!['auto', 'cpu'].includes(settings.compute_backend)) throw new Error('Ogiltig analysmotor');
       if (!['local', 'stashdb', 'both'].includes(settings.image_source)) throw new Error('Ogiltig bildkälla');
-      if (!['stashdb', 'tpdb', 'pmvstash', 'fansdb'].includes(settings.metadata_source)) throw new Error('Ogiltig metadatakälla');
+      if (!['all', 'stashdb', 'tpdb', 'pmvstash', 'fansdb'].includes(settings.metadata_source)) throw new Error('Ogiltig metadatakälla');
       await saveSettingsToBackend(settings);
       globalThis.FaceRecognitionStandalone.reset();
       nativeMetadata.clear();

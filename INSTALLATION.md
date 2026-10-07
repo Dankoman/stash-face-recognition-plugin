@@ -1,4 +1,4 @@
-# Installation av Face Recognition 3.0.0
+# Installation av Face Recognition 3.0.1
 
 ## Installera och uppdatera via Stash
 
@@ -12,7 +12,7 @@ Paketet innehåller alla analysfiler. Ingen separat tjänst eller runtime-instal
 ## Manuell installation av komplett pluginpaket
 
 1. Säkerhetskopiera den installerade pluginmappen och dess inställningar.
-2. Packa upp `face-recognition-3.0.0.zip` från GitHub-versionen 3.0.0 i den befintliga `face-recognition`-pluginmappen. Behåll `assets/` och dess underkataloger; de innehåller alla analysfiler.
+2. Packa upp `face-recognition-3.0.1.zip` från GitHub-versionen 3.0.1 i den befintliga `face-recognition`-pluginmappen. Behåll `assets/` och dess underkataloger; de innehåller alla analysfiler.
 3. Klicka **Reload plugins** i Stash och ladda om webbläsarsidan.
 4. Öppna en scen, välj **Edit**, högerklicka **Identifiera** och välj **Testa analysmotor**.
 5. Kontrollera analysen på en pausad bildruta och att det inte finns någon Identifiera-knapp på Details eller Settings.
@@ -20,6 +20,10 @@ Paketet innehåller alla analysfiler. Ingen separat tjänst eller runtime-instal
 Ingen extern process startas av pluginet. `/face-api` används inte. Tidigare API URL-inställning ignoreras. Befintliga funktionella inställningar behålls; den gamla API-timeouten ersätts vid första inläsning med 180 sekunder eftersom modellerna nu laddas i webbläsaren.
 
 Metadata behöver de källor du vill använda under Stashs **Settings → Metadata Providers → Stash-Box Endpoints**. Befintliga nycklar i StashAPI:s miljöfil migreras inte automatiskt till Stash. Pluginet läser inga nycklar och fungerar för analys utan externa metadatakällor. Källornas vanliga konton/nycklar behövs fortfarande för extern metadata.
+
+## Metadatakälla
+
+Välj **Alla (StashDB → TPDB → PMVStash → FansDB)** i pluginets inställningspanel för att använda första entydiga träffen från källorna i den ordningen. I Stashs generiska plugin-inställningar anges samma val som `all` (även `alla` accepteras). Källorna behöver vara konfigurerade under **Metadata Providers**.
 
 ## Uppdatering och återställning
 

@@ -35,6 +35,19 @@
   }
   const sourceNames={stashdb:'stashdb',tpdb:'theporndb',pmvstash:'pmvstash',fansdb:'fansdb'};
   const clean=value=>String(value||'').trim().toLowerCase();
+  const providerOrder=['stashdb','tpdb','pmvstash','fansdb'];
+  function providerForSource(source,settings) {
+    let hostname='';
+    try { hostname=new URL(source.endpoint).hostname.toLowerCase(); } catch (_) { }
+    const name=clean(source.name).replace(/[\s_-]/g,'');
+    const hostIs=domain=>hostname===domain||hostname.endsWith('.'+domain);
+    if (hostIs('stashdb.org') || name.includes('stashdb') ||
+        (settings.stashdb_endpoint && String(source.endpoint).replace(/\/+$/,'')===String(settings.stashdb_endpoint).replace(/\/+$/,''))) return 'stashdb';
+    if (hostIs('theporndb.net') || hostIs('metadataapi.net') || name.includes('theporndb') || name==='tpdb') return 'tpdb';
+    if (hostIs('pmvstash.org') || name.includes('pmvstash')) return 'pmvstash';
+    if (hostIs('fansdb.cc') || name.includes('fansdb')) return 'fansdb';
+    return null;
+  }
   function normalizeMetadata(performer,source,matched) {
     const aliases=String(performer.aliases||'').split(',').map(s=>s.trim()).filter(Boolean);
     const image=(performer.images||[])[0] || performer.image || null;
@@ -67,13 +80,16 @@
       if(cache.has(key)) return cache.get(key);
       const config=await sources();
       if(!config.sources.length) throw new Error('Konfigurera en metadatakälla under Stash → Settings → Metadata Providers → Stash-Box Endpoints.');
+      const allSources=['all','alla'].includes(clean(settings.metadata_source));
       const preferred=sourceNames[settings.metadata_source]||'stashdb';
       const linkedEndpoints=new Set((identity.stash_ids||[]).map(p=>String(p.endpoint||'').replace(/\/+$/,'')));
       const available=linkedEndpoints.size
         ? config.sources.filter(source=>linkedEndpoints.has(String(source.endpoint||'').replace(/\/+$/,'')))
         : config.sources;
-      const ordered=[...available].sort((a,b)=>{
-        const priority=s=>clean(s.name+' '+(s.endpoint||'')).includes(preferred)?0:s.endpoint===settings.stashdb_endpoint?1:2;
+      const eligible=allSources ? available.filter(source=>providerForSource(source,settings)) : available;
+      if (allSources && !eligible.length && !linkedEndpoints.size) throw new Error('Konfigurera StashDB, TPDB, PMVStash eller FansDB under Stash → Settings → Metadata Providers.');
+      const ordered=[...eligible].sort((a,b)=>{
+        const priority=s=>allSources ? providerOrder.indexOf(providerForSource(s,settings)) : clean(s.name+' '+(s.endpoint||'')).includes(preferred)?0:s.endpoint===settings.stashdb_endpoint?1:2;
         return priority(a)-priority(b);
       });
       const terms=[...new Set([name,...aliases].filter(Boolean))], targets=new Set(terms.map(clean)), errors=[];
@@ -103,7 +119,7 @@
               return result;
             }
           } catch(error) {
-            if(error.name==='AbortError' || error.ambiguous) throw error;
+            if(error.name==='AbortError' || (error.ambiguous && !allSources)) throw error;
             errors.push(`${source.name}: ${error.message}`); break;
           }
         }

@@ -1,6 +1,6 @@
 name: Face Recognition Plugin
 description: Plugin för ansiktsigenkänning som kan pausa scener, extrahera bilder, visa bounding boxes med namn som overlay och lägga till identifierade personer till scenen
-version: 3.0.0
+version: 3.0.1
 url: https://github.com/Dankoman/stash-face-recognition-plugin
 
 ui:
@@ -63,5 +63,5 @@ settings:
     type: STRING
   metadata_source:
     displayName: Metadatakälla
-    description: Välj primär källa för performer-metadata (stashdb, tpdb, pmvstash, fansdb). Förvalt är stashdb.
+    description: all söker StashDB, TPDB, PMVStash och FansDB i den ordningen och tar första entydiga träffen. Välj annars stashdb, tpdb, pmvstash eller fansdb som primär källa.
     type: STRING

@@ -1,4 +1,4 @@
-# Face Recognition Plugin 3.0.0
+# Face Recognition Plugin 3.0.1
 
 Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och en paketerad igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
 
@@ -24,11 +24,11 @@ Matchning använder exporterade 512-dimensionella embeddings och cosinusavstånd
 
 Stashs egna GraphQL-uppslag används för konfigurerade Stash-box-källor: StashDB, ThePornDB, PMVStash och FansDB. API-nycklar begärs inte av pluginet. Konfigurera önskade källor under **Settings → Metadata Providers → Stash-Box Endpoints**; inga separata scrapers behöver installeras.
 
-Primärkällan provas först, följd av övriga konfigurerade källor. Exakta namn eller alias krävs. Befintliga personer matchas med sina sparade externa ID:n, så två personer med samma namn inte förväxlas. En person som redan finns i scenen kräver inget metadatauppslag. Tvetydiga träffar utan en sparad identitet stoppas. Ett källfel skiljs från en lyckad sökning utan träff, så ett fel inte skapar en person med enbart namn. De metadatafält som pluginet stöder och Stash accepterar vid import följer med. Bilder hämtas av Stash vid skapande/uppdatering, vilket undviker webbläsarens CORS-problem. Komplettering bevarar ifyllda lokala fält och kräver samma externa identitet.
+Välj **Alla** under Metadatakälla för sökordningen **StashDB → TPDB → PMVStash → FansDB**. Första entydiga träffen används och senare källor anropas inte. Ej konfigurerade källor hoppas över; ett källfel eller en tvetydig träff låter sökningen fortsätta till nästa källa. Om ingen entydig träff finns rapporteras källfelen. Övriga val använder den valda primärkällan först, följd av övriga konfigurerade källor. Exakta namn eller alias krävs. Befintliga personer matchas med sina sparade externa ID:n, så två personer med samma namn inte förväxlas. En person som redan finns i scenen kräver inget metadatauppslag. Tvetydiga träffar utan en sparad identitet stoppas. Ett källfel skiljs från en lyckad sökning utan träff, så ett fel inte skapar en person med enbart namn. De metadatafält som pluginet stöder och Stash accepterar vid import följer med. Bilder hämtas av Stash vid skapande/uppdatering, vilket undviker webbläsarens CORS-problem. Komplettering bevarar ifyllda lokala fält och kräver samma externa identitet.
 
 ## Installation
 
-Se [INSTALLATION.md](INSTALLATION.md). Installera eller uppgradera via Stash med `main/index.yml` som plugin-källa. GitHub-versionen 3.0.0 innehåller det kompletta ZIP-paketet med modeller, runtime och igenkänningsdata.
+Se [INSTALLATION.md](INSTALLATION.md). Installera eller uppgradera via Stash med `main/index.yml` som plugin-källa. GitHub-versionen 3.0.1 innehåller det kompletta ZIP-paketet med modeller, runtime och igenkänningsdata.
 
 ## Verifiering
 
@@ -41,6 +41,6 @@ node --test tests/*.test.cjs
 
 `tests/browser-smoke.html` kör de faktiska paketerade modellerna på syntetisk media, också med CSP som tillåter WebAssembly men inte allmän JavaScript-eval. `tests/ui-placement.html` verifierar knappens placering med Stashs observerade DOM-struktur. Testserver och Node/Python används bara under utveckling.
 
-Verifierat i Chrome/Linux: modellerna körs på CPU, analys av pausad video fungerar, befintliga performers kan väljas utan tvetydiga namnsökningar och previewn placeras vid förslaget och tas bort efter valet. Knappen visas enbart i Edit. 50 automatiserade tester täcker även metadataimport, inställningar, arbetaren och fördröjd preview-laddning.
+Verifierat i Chrome/Linux: modellerna körs på CPU, analys av pausad video fungerar, befintliga performers kan väljas utan tvetydiga namnsökningar och previewn placeras vid förslaget och tas bort efter valet. Knappen visas enbart i Edit. 59 automatiserade tester täcker även metadataimport, inställningar, arbetaren och fördröjd preview-laddning.
 
 Windows, AMD/Nvidia-acceleration, bredare träffsäkerhet och full metadataimport mot livekällor är ännu inte verifierade. WebGPU-stöd beror på webbläsare och drivrutiner; CPU/WebAssembly används som fallback.

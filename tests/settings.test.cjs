@@ -74,3 +74,11 @@ test('player mount changes are coalesced; unrelated DOM changes cause no work', 
   for(let i=0;i<20;i++) t.mutate([{addedNodes:[node(true)],removedNodes:[]}]);
   assert.equal(t.timers.length,1); t.timers[0](); assert.equal(count,2);
 });
+
+test('all metadata mode loads and saves through the native Stash settings',async()=>{
+ for(const value of ['ALL','alla']) {
+  const t=setup(server({metadata_source:value}));await t.api.load();
+  assert.equal(t.api.get().metadata_source,'all');
+  await t.api.save(t.api.get());assert.equal(t.requests.at(-1).body.variables.input.metadata_source,'all');
+ }
+});
