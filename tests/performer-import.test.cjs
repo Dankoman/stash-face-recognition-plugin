@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 const source = fs.readFileSync(path.join(__dirname,'..','face-recognition.js'),'utf8');
-const entry = "init().catch(e => console.error('Initfel:', e));";
+const entry = "init().catch(e => console.error('Initialization error:', e));";
 const scalar = name => ({kind:'SCALAR',name});
 const list = name => ({kind:'LIST',ofType:{kind:'NON_NULL',ofType:scalar(name)}});
 const fieldTypes = {name:scalar('String'),disambiguation:scalar('String'),alias_list:list('String'),urls:list('String'),stash_ids:list('StashIDInput'),gender:{kind:'ENUM',name:'GenderEnum'},ethnicity:scalar('String'),country:scalar('String'),birthdate:scalar('String'),death_date:scalar('String'),hair_color:scalar('String'),eye_color:scalar('String'),measurements:scalar('String'),height_cm:scalar('Int'),weight:scalar('Int'),career_start:scalar('String'),career_end:scalar('String'),tattoos:scalar('String'),piercings:scalar('String'),fake_tits:scalar('String'),image:scalar('String'),details:scalar('String')};
@@ -108,7 +108,7 @@ test('an already attached performer skips ambiguous provider lookup and all muta
  await t.api.add('Synthetic Person');
  assert.equal(t.lookups.length,0);
  assert.equal(t.mutations.length,0);
- assert.ok(t.notifications.some(message=>/finns redan i scenen/.test(message)));
+ assert.ok(t.notifications.some(message=>/is already in the scene/.test(message)));
 });
 test('metadata enrichment passes the saved external identity before lookup',async()=>{
  const t=setup({current});await t.api.complete({id:'42'},'Synthetic Person',[]);

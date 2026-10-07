@@ -1,14 +1,14 @@
-<!doctype html><html lang="sv"><meta charset="utf-8"><title>Face Recognition — placeringstest</title>
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Face Recognition — placement test</title>
 <link rel="stylesheet" href="../face-recognition.css"><style>body{background:#20242b;color:white;font:16px sans-serif;padding:25px}button{padding:10px;margin:5px}#scene-edit-details{border:1px solid #555;padding:15px;max-width:420px}</style>
-<h1>Pluginets knappplacering</h1><button id="settings">Settings</button><button id="details">Scene Details</button><button id="edit">Scene Edit</button>
+<h1>Plugin button placement</h1><button id="settings">Settings</button><button id="details">Scene Details</button><button id="edit">Scene Edit</button>
 <div id="view"></div><p id="status"></p>
 <script>
 const originalFetch=window.fetch;
 window.fetch=(url,options)=>url==='/graphql'?Promise.resolve({ok:true,text:async()=>JSON.stringify({data:{plugins:[{id:'face-recognition',name:'Face Recognition Plugin'}],configuration:{plugins:{}}}})}):originalFetch(url,options);
 function show(mode){
  history.replaceState({},'',mode==='settings'?'/settings?tab=tasks':'/scenes/123');
- document.querySelector('#view').innerHTML=mode==='settings'?'<h2>Settings → Tasks</h2>':`<h2>Scen 123 — ${mode}</h2><div class="scene-tabs"><a role="tab" data-rb-event-key="scene-edit-panel" aria-selected="${mode==='edit'}">Edit</a></div>${mode==='edit'?'<div id="scene-edit-details"><form><div class="edit-buttons-container"><button type="button">Save</button></div><label>Title <input id="title" value="Syntetisk testscen"></label></form></div>':'<div>Scenens detaljer</div>'}`;
- setTimeout(()=>document.querySelector('#status').textContent='Identifiera-knappar: '+document.querySelectorAll('.frp-fab').length,250);
+ document.querySelector('#view').innerHTML=mode==='settings'?'<h2>Settings → Tasks</h2>':`<h2>Scene 123 — ${mode}</h2><div class="scene-tabs"><a role="tab" data-rb-event-key="scene-edit-panel" aria-selected="${mode==='edit'}">Edit</a></div>${mode==='edit'?'<div id="scene-edit-details"><form><div class="edit-buttons-container"><button type="button">Save</button></div><label>Title <input id="title" value="Synthetic test scene"></label></form></div>':'<div>Scene details</div>'}`;
+ setTimeout(()=>document.querySelector('#status').textContent='Identify buttons: '+document.querySelectorAll('.frp-fab').length,250);
 }
 document.querySelector('#settings').onclick=()=>show('settings');document.querySelector('#details').onclick=()=>show('details');document.querySelector('#edit').onclick=()=>show('edit');show('settings');
 </script><script src="../standalone-browser.js"></script><script src="../face-recognition.js"></script></html>

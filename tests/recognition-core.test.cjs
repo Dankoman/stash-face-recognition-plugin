@@ -30,7 +30,7 @@ test('KNN mirrors cosine-distance voting and per-candidate similarity',()=>{
  assert.equal(core.rank(query,database,labels,1).length,1);
 });
 test('invalid databases, zero embeddings and dimensions fail clearly',()=>{
- assert.throws(()=>core.normalizeGallery(new Float32Array(512),['A']),/Tom embedding/);
- assert.throws(()=>core.normalizeGallery(new Float32Array(513),['A']),/databas/);
+ assert.throws(()=>core.normalizeGallery(new Float32Array(512),['A']),/Empty embedding/);
+ assert.throws(()=>core.normalizeGallery(new Float32Array(513),['A']),/database/);
  assert.throws(()=>core.rank(new Float32Array(2),new Float32Array(2),['A']),/dimension/);
 });

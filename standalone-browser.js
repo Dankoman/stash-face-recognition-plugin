@@ -9,7 +9,7 @@
     pending.clear();
   }
   function request(pluginId,type,payload={},timeout=180000) {
-    if(!pluginId) return Promise.reject(new Error('Pluginets ID är inte laddat. Ladda om Stash.'));
+    if(!pluginId) return Promise.reject(new Error('The plugin ID has not loaded. Reload Stash.'));
     if(!worker) {
       const base=new URL(`/plugin/${encodeURIComponent(pluginId)}/assets/face/`,root.location.href).href;
       // Stash permits blob workers; its plugin CSP format cannot add worker-src.
@@ -22,12 +22,12 @@
         pending.delete(data.id); clearTimeout(entry.timer);
         if(data.error) entry.reject(new Error(data.error)); else entry.resolve({result:data.result,backend:data.backend});
       };
-      worker.onerror=()=>reset(new Error('Analysmotorn kunde inte startas. Kontrollera pluginfilerna och webbläsarens CSP.'));
-      worker.onmessageerror=()=>reset(new Error('Analysmotorn returnerade oläsbara data'));
+      worker.onerror=()=>reset(new Error('The analysis engine could not start. Check the plugin files and browser CSP.'));
+      worker.onmessageerror=()=>reset(new Error('The analysis engine returned unreadable data'));
     }
     return new Promise((resolve,reject)=>{
       const id=++sequence;
-      const timer=setTimeout(()=>reset(new Error('Analysen tog för lång tid. Motorn har återställts.')),timeout);
+      const timer=setTimeout(()=>reset(new Error('Analysis took too long. The engine has been reset.')),timeout);
       pending.set(id,{resolve,reject,timer});
       try { worker.postMessage({id,type,...payload},payload.bitmap?[payload.bitmap]:[]); }
       catch(error) { pending.delete(id); clearTimeout(timer); reject(error); }
@@ -79,7 +79,7 @@
       const key=JSON.stringify([name,aliases,settings.metadata_source,settings.stashdb_endpoint,identity.stash_ids||[]]);
       if(cache.has(key)) return cache.get(key);
       const config=await sources();
-      if(!config.sources.length) throw new Error('Konfigurera en metadatakälla under Stash → Settings → Metadata Providers → Stash-Box Endpoints.');
+      if(!config.sources.length) throw new Error('Configure a metadata source under Stash → Settings → Metadata Providers → Stash-Box Endpoints.');
       const allSources=['all','alla'].includes(clean(settings.metadata_source));
       const preferred=sourceNames[settings.metadata_source]||'stashdb';
       const linkedEndpoints=new Set((identity.stash_ids||[]).map(p=>String(p.endpoint||'').replace(/\/+$/,'')));
@@ -87,7 +87,7 @@
         ? config.sources.filter(source=>linkedEndpoints.has(String(source.endpoint||'').replace(/\/+$/,'')))
         : config.sources;
       const eligible=allSources ? available.filter(source=>providerForSource(source,settings)) : available;
-      if (allSources && !eligible.length && !linkedEndpoints.size) throw new Error('Konfigurera StashDB, TPDB, PMVStash eller FansDB under Stash → Settings → Metadata Providers.');
+      if (allSources && !eligible.length && !linkedEndpoints.size) throw new Error('Configure StashDB, TPDB, PMVStash or FansDB under Stash → Settings → Metadata Providers.');
       const ordered=[...eligible].sort((a,b)=>{
         const priority=s=>allSources ? providerOrder.indexOf(providerForSource(s,settings)) : clean(s.name+' '+(s.endpoint||'')).includes(preferred)?0:s.endpoint===settings.stashdb_endpoint?1:2;
         return priority(a)-priority(b);
@@ -95,7 +95,7 @@
       const terms=[...new Set([name,...aliases].filter(Boolean))], targets=new Set(terms.map(clean)), errors=[];
       for(const source of ordered) {
         for(const term of terms) {
-          if(signal?.aborted) throw new DOMException('Avbruten','AbortError');
+          if(signal?.aborted) throw new DOMException('Aborted','AbortError');
           try {
             const data=await gql(`query($source:ScraperSourceInput!,$input:ScrapeSinglePerformerInput!){scrapeSinglePerformer(source:$source,input:$input){${config.fields}}}`,{source:source.source,input:{query:term}},{signal});
             const expectedIds=new Set((identity.stash_ids||[])
@@ -112,7 +112,7 @@
               if(seen.has(p.remote_site_id)) return false;
               seen.add(p.remote_site_id); return true;
             });
-            if(matches.length>1) { const error=new Error(`Flera exakta träffar hos ${source.name}; identiteten är tvetydig`); error.ambiguous=true; throw error; }
+            if(matches.length>1) { const error=new Error(`Multiple exact matches in ${source.name}; the identity is ambiguous`); error.ambiguous=true; throw error; }
             if(matches.length===1) {
               const result=normalizeMetadata(matches[0],source,term);
               cache.set(key,result); if(cache.size>64) cache.delete(cache.keys().next().value);
@@ -146,7 +146,7 @@
       catch(error) { bitmap.close(); throw error; }
     },
     async health(pluginId,backend='auto') { const response=await request(pluginId,'health',{backend}); return {...response.result,backend:response.backend}; },
-    reset:()=>reset(new Error('Inställningarna ändrades. Försök igen.')),
+    reset:()=>reset(new Error('Settings changed. Please try again.')),
     metadataClient,normalizeMetadata,
   };
 })(globalThis);

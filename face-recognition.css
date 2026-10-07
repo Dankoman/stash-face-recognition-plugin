@@ -1,4 +1,4 @@
-/* face-recognition.css (uppdaterad för större, icke-beskurna previews) */
+/* face-recognition.css (updated for larger, uncropped previews) */
 
 .frp-fab {
   display: flex;
@@ -89,7 +89,7 @@
 
 :root {
   --fr-preview-max: none;
-  /* tillåt originalstorlek */
+  /* allow original size */
   --fr-preview-border: 1px solid rgba(255, 255, 255, .25);
   --fr-preview-radius: 10px;
   --fr-preview-bg: rgba(0, 0, 0, .45);

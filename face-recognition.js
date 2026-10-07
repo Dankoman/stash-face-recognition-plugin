@@ -1,5 +1,5 @@
 // Face Recognition 3 — local browser inference and native Stash metadata
-// + Klick på förslag = lägg till performer i aktuell scen via Stash GraphQL
+// + Click a suggestion to add the performer to the current scene through Stash GraphQL
 
 (function () {
   const LEGACY_LS_KEY = 'face_recognition_plugin_settings';
@@ -16,7 +16,7 @@
     auto_add_performers: false,
     create_new_performers: false,
     max_suggestions: 3,
-    image_source: 'both', // local|stashdb|both (skickas till backend)
+    image_source: 'both', // local|stashdb|both (passed to the backend)
     stashdb_endpoint: 'https://stashdb.org/graphql',
     metadata_source: 'stashdb', // all|stashdb|tpdb|pmvstash|fansdb
   });
@@ -112,7 +112,7 @@
       // Only remove the legacy cache after the authoritative settings loaded successfully.
       try { localStorage.removeItem(LEGACY_LS_KEY); } catch { }
     } catch (err) {
-      console.warn('Kunde inte läsa plugin-inställningar:', err);
+      console.warn('Could not load plugin settings:', err);
     }
   }
 
@@ -285,7 +285,7 @@
     try {
       const data = await stashGraphQL(query, {});
       const rawFields = Array.isArray(data?.performerInput?.inputFields) ? data.performerInput.inputFields : [];
-      if (!rawFields.some(field => field.name === 'name')) throw new Error('Ofullständigt importschema');
+      if (!rawFields.some(field => field.name === 'name')) throw new Error('Incomplete import schema');
       const inputFields = new Map();
       const listFields = new Set();
       rawFields.forEach(field => {
@@ -311,8 +311,8 @@
         performerSchemaCaps.logged = true;
       }
     } catch (err) {
-      console.error('Kunde inte introspektera PerformerCreateInput', err);
-      throw new Error('Kunde inte läsa Stashs importschema. Försök igen.');
+      console.error('Could not inspect PerformerCreateInput', err);
+      throw new Error('Could not load the Stash import schema. Please try again.');
     }
     return performerSchemaCaps;
   }
@@ -594,7 +594,7 @@
       return blob;
     } catch (err) {
       if (err?.name !== 'AbortError') {
-        console.warn('Kunde inte hämta bild direkt:', err);
+        console.warn('Could not fetch the image directly:', err);
       }
       return null;
     } finally {
@@ -604,7 +604,7 @@
 
   async function imageBlobToDataURL(blob) {
     if (!blob?.size || !/^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) {
-      throw new Error('Bildkällan returnerade ingen giltig profilbild');
+      throw new Error('The image source did not return a valid profile image');
     }
     return `data:${blob.type};base64,${arrayBufferToBase64(await blob.arrayBuffer())}`;
   }
@@ -660,11 +660,11 @@
     if (!imageStrategy || imageStrategy.mode !== 'upload') return;
     try {
       const blob = await fetchImageBlobForPerformer(canonicalName, imageStrategy.url, metadata);
-      if (!blob) throw new Error('Profilbilden kunde inte hämtas');
+      if (!blob) throw new Error('Could not fetch the profile image');
       await uploadPerformerImageBlob(performerId, blob, canonicalName);
     } catch (err) {
-      console.warn('Kunde inte bifoga performer-bild:', err);
-      notify(`Personen skapades, men profilbilden saknas: ${err.message}`, true);
+      console.warn('Could not attach the performer image:', err);
+      notify(`The performer was created, but the profile image is missing: ${err.message}`, true);
     }
   }
 
@@ -739,7 +739,7 @@
         console.warn('fetchPerformerById 422', err.payload || err.message || err);
         return null;
       }
-      console.error('fetchPerformerById fel:', err);
+      console.error('fetchPerformerById error:', err);
       return null;
     }
   }
@@ -818,7 +818,7 @@
   }
 
   function getCurrentSceneId() {
-    // matcher /scenes/12345 eller /scenes/12345?... 
+    // matches /scenes/12345 or /scenes/12345?...
     const m = location.pathname.match(/\/scenes\/(\d+)/);
     return m ? m[1] : null;
   }
@@ -863,7 +863,7 @@
           if (err?.status === 422) {
             continue;
           }
-          console.error('findPerformerByName fel:', err.payload || err.message || err);
+          console.error('findPerformerByName error:', err.payload || err.message || err);
         }
       }
     }
@@ -887,7 +887,7 @@
       const data = await stashGraphQL(`mutation($input: PerformerCreateInput!) {
         performerCreate(input:$input) { id name }
       }`, { input });
-      if (!data?.performerCreate) throw new Error('Stash returnerade ingen skapad person');
+      if (!data?.performerCreate) throw new Error('Stash did not return the created performer');
       if (result.metadata) {
         await tryAttachPerformerImage(data.performerCreate.id, result.canonicalName, result.imageStrategy, result.metadata);
       }
@@ -960,21 +960,21 @@
     }
     if (Object.keys(update).length > 1) {
       await stashGraphQL(`mutation($input:PerformerUpdateInput!){performerUpdate(input:$input){id}}`, { input: update });
-      notify('Kompletterade saknad profilbild och metadata');
+      notify('Added the missing profile image and metadata');
     }
     return performer;
   }
 
   async function addPerformerToSceneByName(name) {
     const sceneId = getCurrentSceneId();
-    if (!sceneId) { notify('Kunde inte hitta scen-ID', true); return; }
+    if (!sceneId) { notify('Could not find the scene ID', true); return; }
 
     const aliasCandidates = generateAliasCandidates(name);
     let perf = await findPerformerByName(name);
     if (perf) {
       const scenePerformers = await getScenePerformerIds(sceneId);
       if (scenePerformers.includes(parseInt(perf.id, 10))) {
-        notify(`"${perf.name}" finns redan i scenen`);
+        notify(`"${perf.name}" is already in the scene`);
         return;
       }
       perf = await completeExistingPerformer(perf, name, aliasCandidates);
@@ -996,7 +996,7 @@
         if (!perf) throw err;
       }
       if (!perf) {
-        notify(`Hittade ingen performer "${normalizeCandidateName(name) || name}"`, true);
+        notify(`Could not find a performer named "${normalizeCandidateName(name) || name}"`, true);
         return;
       }
     }
@@ -1004,7 +1004,7 @@
     const existing = await getScenePerformerIds(sceneId);
     const pid = parseInt(perf.id, 10);
     if (existing.includes(pid)) {
-      notify(`"${perf.name}" finns redan i scenen`);
+      notify(`"${perf.name}" is already in the scene`);
       return;
     }
 
@@ -1015,12 +1015,12 @@
       }
     `;
     await stashGraphQL(q, { input: { id: sceneId, performer_ids: allIds } });
-    notify(`La till "${perf.name}" i scenen`);
+    notify(`Added "${perf.name}" to the scene`);
   }
 
   // Stash is the single source of truth; commit local state only after a successful save.
   async function saveSettingsToBackend(settings) {
-    if (!pluginId) throw new Error('Plugin-inställningarna har inte laddats. Ladda om sidan.');
+    if (!pluginId) throw new Error('Plugin settings have not loaded. Reload the page.');
     const input = Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(key => [key, settings[key]]));
     await stashGraphQL(`mutation ConfigurePlugin($plugin_id: ID!, $input: Map!) {
       configurePlugin(plugin_id: $plugin_id, input: $input)
@@ -1029,72 +1029,72 @@
     clearImageCache();
   }
 
-  // ---------------- Settings panel (högerklick) ----------------
+  // ---------------- Settings panel (right-click) ----------------
   function escapeAttr(val) {
     return String(val ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   }
 
   function createSettingsPanel() {
-    if (document.querySelector('.fr-settings-panel')) return; // en instans åt gången
+    if (document.querySelector('.fr-settings-panel')) return; // one instance at a time
     const wrap = document.createElement('div');
     wrap.className = 'fr-settings-panel';
     wrap.innerHTML = `
-      <div class="fr-sp-head">Face Recognition - Inställningar</div>
+      <div class="fr-sp-head">Face Recognition - Settings</div>
       <div class="fr-sp-body" style="max-height:80vh;overflow-y:auto">
-        <label>Analysmotor:</label>
+        <label>Analysis engine:</label>
         <select id="fr-compute-backend">
-          <option value="auto" ${pluginSettings.compute_backend === 'auto' ? 'selected' : ''}>Automatisk (GPU om tillgänglig)</option>
+          <option value="auto" ${pluginSettings.compute_backend === 'auto' ? 'selected' : ''}>Automatic (GPU when available)</option>
           <option value="cpu" ${pluginSettings.compute_backend === 'cpu' ? 'selected' : ''}>CPU</option>
         </select>
 
-        <label>Analystimeout (sek):</label>
+        <label>Analysis timeout (seconds):</label>
         <input type="number" id="fr-api-timeout" value="${pluginSettings.api_timeout}" min="30" max="600">
 
-        <label>Visa konfidensgrad:</label>
+        <label>Show confidence:</label>
         <input type="checkbox" id="fr-show-confidence" ${pluginSettings.show_confidence ? 'checked' : ''}>
 
-        <label for="fr-min-confidence">Minimum konfidens (0–100):</label>
+        <label for="fr-min-confidence">Minimum confidence (0–100):</label>
         <input type="number" id="fr-min-confidence" value="${pluginSettings.min_confidence}" min="0" max="100">
-        <p style="font-size:12px;color:#aaa;">Förslag under gränsen märks som osäkra men visas fortfarande.</p>
+        <p style="font-size:12px;color:#aaa;">Suggestions below the threshold are marked as uncertain but remain visible.</p>
 
         <label>
           <input type="checkbox" id="fr-auto-add" ${pluginSettings.auto_add_performers ? 'checked' : ''}>
-          Lägg automatiskt till performers i scenen
+          Automatically add performers to the scene
         </label>
 
         <label>
           <input type="checkbox" id="fr-create-new" ${pluginSettings.create_new_performers ? 'checked' : ''}>
-          Skapa nya performers för okända ansikten
+          Create new performers for unknown faces
         </label>
 
         <hr style="margin:12px 0;border-color:#3a3a3a;">
 
-        <label for="fr-max-suggestions">Max förslag (topp-K):</label>
+        <label for="fr-max-suggestions">Max suggestions (top-K):</label>
         <input type="number" id="fr-max-suggestions" value="${pluginSettings.max_suggestions}" min="1" max="10">
-        <p style="font-size:12px;color:#aaa;">Antal kandidater med varsin preview i resultatlistan.</p>
+        <p style="font-size:12px;color:#aaa;">Number of candidates with individual previews in the results list.</p>
 
-        <label>Bildkälla (local | stashdb | both):</label>
+        <label>Image source (local | stashdb | both):</label>
         <input type="text" id="fr-image-source" value="${escapeAttr(pluginSettings.image_source)}">
 
-        <label for="fr-metadata-source">Metadatakälla:</label>
+        <label for="fr-metadata-source">Metadata source:</label>
         <select id="fr-metadata-source">
-          <option value="all" ${pluginSettings.metadata_source === 'all' ? 'selected' : ''}>Alla (StashDB → TPDB → PMVStash → FansDB)</option>
-          <option value="stashdb" ${pluginSettings.metadata_source === 'stashdb' ? 'selected' : ''}>StashDB först</option>
-          <option value="tpdb" ${pluginSettings.metadata_source === 'tpdb' ? 'selected' : ''}>TPDB först</option>
-          <option value="pmvstash" ${pluginSettings.metadata_source === 'pmvstash' ? 'selected' : ''}>PMVStash först</option>
-          <option value="fansdb" ${pluginSettings.metadata_source === 'fansdb' ? 'selected' : ''}>FansDB först</option>
+          <option value="all" ${pluginSettings.metadata_source === 'all' ? 'selected' : ''}>All (StashDB → TPDB → PMVStash → FansDB)</option>
+          <option value="stashdb" ${pluginSettings.metadata_source === 'stashdb' ? 'selected' : ''}>StashDB first</option>
+          <option value="tpdb" ${pluginSettings.metadata_source === 'tpdb' ? 'selected' : ''}>TPDB first</option>
+          <option value="pmvstash" ${pluginSettings.metadata_source === 'pmvstash' ? 'selected' : ''}>PMVStash first</option>
+          <option value="fansdb" ${pluginSettings.metadata_source === 'fansdb' ? 'selected' : ''}>FansDB first</option>
         </select>
-        <p>I läget Alla används första entydiga träffen i ordningen ovan. Källor som inte är konfigurerade hoppas över.</p>
+        <p>All uses the first unambiguous match in the order above. Sources that are not configured are skipped.</p>
 
         <label>StashDB endpoint:</label>
         <input type="text" id="fr-stashdb-endpoint" value="${escapeAttr(pluginSettings.stashdb_endpoint)}">
 
-        <p>Metadata hämtas via dina konfigurerade källor i Stash. Analysen körs i webbläsaren.</p>
+        <p>Metadata is retrieved through your configured sources in Stash. Analysis runs in the browser.</p>
 
         <div class="fr-sp-actions">
-          <button type="button" id="fr-sp-test">Testa analysmotor</button>
-          <button type="button" id="fr-sp-save">Spara</button>
-          <button type="button" id="fr-sp-close">Stäng</button>
+          <button type="button" id="fr-sp-test">Test analysis engine</button>
+          <button type="button" id="fr-sp-save">Save</button>
+          <button type="button" id="fr-sp-close">Close</button>
         </div>
       </div>`;
 
@@ -1117,9 +1117,9 @@
       button.disabled = true;
       try {
         const health = await globalThis.FaceRecognitionStandalone.health(pluginId, pluginSettings.compute_backend);
-        notify(`Analysmotorn fungerar: ${health.backend === 'webgpu' ? 'GPU (WebGPU)' : 'CPU (WebAssembly)'}, ${health.identities} identiteter.`);
+        notify(`Analysis engine is ready: ${health.backend === 'webgpu' ? 'GPU (WebGPU)' : 'CPU (WebAssembly)'}, ${health.identities} identities.`);
       } catch (error) {
-        notify(`Motortest misslyckades: ${error.message}`, true);
+        notify(`Engine test failed: ${error.message}`, true);
       } finally {
         button.disabled = false;
       }
@@ -1150,23 +1150,23 @@
         metadata_source: value('#fr-metadata-source').trim().toLowerCase(),
         stashdb_endpoint: value('#fr-stashdb-endpoint').trim() || DEFAULT_SETTINGS.stashdb_endpoint,
       };
-      if (!['auto', 'cpu'].includes(settings.compute_backend)) throw new Error('Ogiltig analysmotor');
-      if (!['local', 'stashdb', 'both'].includes(settings.image_source)) throw new Error('Ogiltig bildkälla');
-      if (!['all', 'stashdb', 'tpdb', 'pmvstash', 'fansdb'].includes(settings.metadata_source)) throw new Error('Ogiltig metadatakälla');
+      if (!['auto', 'cpu'].includes(settings.compute_backend)) throw new Error('Invalid analysis engine');
+      if (!['local', 'stashdb', 'both'].includes(settings.image_source)) throw new Error('Invalid image source');
+      if (!['all', 'stashdb', 'tpdb', 'pmvstash', 'fansdb'].includes(settings.metadata_source)) throw new Error('Invalid metadata source');
       await saveSettingsToBackend(settings);
       globalThis.FaceRecognitionStandalone.reset();
       nativeMetadata.clear();
-      notify('Inställningar sparade');
+      notify('Settings saved');
       root.remove();
     } catch (error) {
-      console.error('Kunde inte spara inställningar:', error);
-      notify(`Kunde inte spara: ${error.message}`, true);
+      console.error('Could not save settings:', error);
+      notify(`Could not save: ${error.message}`, true);
     } finally {
       button.disabled = false;
     }
   }
 
-  // ---------------- Hjälpare för video/overlay ----------------
+  // ---------------- Video/overlay helpers ----------------
   function findVideoElement() {
     for (const sel of ['.video-js video', '.vjs-tech', 'video[playsinline]', 'video']) {
       const el = document.querySelector(sel);
@@ -1228,7 +1228,7 @@
     }, 30000);
   }
 
-  // ---------------- Tooltip (förhandsbild) ----------------
+  // ---------------- Tooltip (preview image) ----------------
   function makePreviewTooltip() {
     const tip = document.createElement('div');
     tip.className = 'frp-preview';
@@ -1264,7 +1264,7 @@
     return { tip, img };
   }
 
-  // ---------------- Bild-URL: bytes-mode via backend ----------------
+  // ---------------- Image URL: bytes mode through the backend ----------------
   async function resolveImageURL(name, signal) {
     const cached = getCachedImageHref(name);
     if (cached !== undefined) return cached;
@@ -1273,7 +1273,7 @@
     return href;
   }
 
-  // ---------------- Hover-preview per rad ----------------
+  // ---------------- Hover preview for each row ----------------
   function attachHoverPreview(rowEl, name) {
     let tipRef = null;
     let enterTimer = null;
@@ -1372,7 +1372,7 @@
         try {
           url = await resolveImageURL(name, ctrl.signal);
         } catch (err) {
-          if (pendingCtrl === ctrl && err?.name !== 'AbortError') console.error('Preview-fetch misslyckades:', err);
+          if (pendingCtrl === ctrl && err?.name !== 'AbortError') console.error('Preview fetch failed:', err);
           if (pendingCtrl === ctrl) pendingCtrl = null;
           return;
         }
@@ -1433,10 +1433,10 @@
     const frame = document.createElement('div');
     frame.className = 'frp-candidate-preview';
     const status = document.createElement('span');
-    status.textContent = 'Laddar bild…';
+    status.textContent = 'Loading image…';
     const img = document.createElement('img');
     img.className = 'frp-candidate-image';
-    img.alt = `Preview för ${name}`;
+    img.alt = `Preview for ${name}`;
     img.style.display = 'none';
     frame.appendChild(status);
     frame.appendChild(img);
@@ -1448,7 +1448,7 @@
       if (!isActive()) return;
       img.style.display = 'none';
       status.style.display = '';
-      status.textContent = 'Bild saknas';
+      status.textContent = 'No image available';
     }
     img.onload = () => {
       if (!isActive()) return;
@@ -1486,7 +1486,7 @@
     clearOverlay();
     if (!items || !items.length) return;
     const video = findVideoElement();
-    if (!video) { notify('Ingen video för overlay', true); return; }
+    if (!video) { notify('No video available for the overlay', true); return; }
     const ov = ensureOverlay();
     const r = video.getBoundingClientRect();
     const vw = video.clientWidth || r.width;
@@ -1531,7 +1531,7 @@
       if (cands.length === 0) {
         const row = document.createElement('div');
         Object.assign(row.style, { padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' });
-        row.textContent = '(inga kandidater)';
+        row.textContent = '(no candidates)';
         sug.appendChild(row);
       } else {
         cands.forEach((c, index) => {
@@ -1553,23 +1553,23 @@
           if (c.score * 100 < minPct) {
             const warning = document.createElement('span');
             warning.className = 'frp-candidate-warning';
-            warning.textContent = 'Osäkert förslag';
+            warning.textContent = 'Uncertain suggestion';
             text.appendChild(warning);
           }
           row.appendChild(text);
 
-          // --- NYTT: klick = lägg till i scenen ---
+          // --- Click to add to the scene ---
           row.addEventListener('click', async (e) => {
             e.preventDefault(); e.stopPropagation();
             row.style.opacity = '0.6';
             try {
               await addPerformerToSceneByName(c.name);
               rowPreviewDisposers.forEach(dispose => dispose());
-              box.remove(); // Ta bort bounding boxen om det lyckades
+              box.remove(); // Remove the bounding box after a successful selection
             } catch (err) {
               console.error(err);
-              notify(`Misslyckades: ${err.message || err}`, true);
-              row.style.opacity = ''; // Återställ endast vid fel
+              notify(`Failed: ${err.message || err}`, true);
+              row.style.opacity = ''; // Restore only on failure
             }
           });
 
@@ -1581,7 +1581,7 @@
 
       box.appendChild(sug);
 
-      // Visa/dölj namnlistan med fördröjning
+      // Show/hide the list with a delay
       let hideTimer = null;
       function showSug() {
         clearTimeout(hideTimer);
@@ -1615,13 +1615,13 @@
     scheduleOverlayAutoClear();
   }
 
-  // ---------------- UI-knapp ----------------
+  // ---------------- UI button ----------------
   function updateRecognitionButton(btn) {
     btn.disabled = recognitionInFlight;
     btn.setAttribute('aria-busy', String(recognitionInFlight));
-    btn.setAttribute('aria-label', recognitionInFlight ? 'Analyserar bildruta' : 'Identifiera ansikten');
+    btn.setAttribute('aria-label', recognitionInFlight ? 'Analyzing frame' : 'Identify faces');
     const label = btn.querySelector('.frp-fab-text');
-    if (label) label.textContent = recognitionInFlight ? 'Analyserar…' : 'Identifiera';
+    if (label) label.textContent = recognitionInFlight ? 'Analyzing…' : 'Identify';
   }
   function setRecognitionBusy(busy) {
     recognitionInFlight = busy;
@@ -1631,8 +1631,8 @@
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'frp-fab';
-    btn.innerHTML = `<span class="frp-fab-icon" aria-hidden="true">👁</span><span class="frp-fab-text">Identifiera</span>`;
-    btn.title = 'Identifiera ansikten (vänsterklick) — Inställningar (högerklick)';
+    btn.innerHTML = `<span class="frp-fab-icon" aria-hidden="true">👁</span><span class="frp-fab-text">Identify</span>`;
+    btn.title = 'Identify faces (left-click) — Settings (right-click)';
     updateRecognitionButton(btn);
     btn.addEventListener('click', performFaceRecognition);
     btn.addEventListener('contextmenu', e => { e.preventDefault(); createSettingsPanel(); });
@@ -1676,14 +1676,14 @@
     ensurePanelPlacement(btn, panelHost);
   }
 
-  // ---------------- Huvudflöde ----------------
+  // ---------------- Main flow ----------------
   async function performFaceRecognition() {
     if (recognitionInFlight) return;
     const scenePath = window.location.pathname;
     try {
-      const video = findVideoElement(); if (!video) return notify('Ingen video hittad', true);
+      const video = findVideoElement(); if (!video) return notify('No video found', true);
       if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-        return notify('Video ej redo. Starta videon och pausa på en bildruta först.', true);
+        return notify('Video is not ready. Play the video and pause on a frame first.', true);
       }
       setRecognitionBusy(true);
 
@@ -1692,26 +1692,26 @@
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0);
       const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
-      if (!blob) return notify('Kunde inte skapa bild', true);
+      if (!blob) return notify('Could not capture an image', true);
 
       try {
         const data = await globalThis.FaceRecognitionStandalone.recognize(pluginId, blob, pluginSettings.max_suggestions || 3, pluginSettings.api_timeout * 1000, pluginSettings.compute_backend);
         // Discard a completed analysis after navigation; never apply it to a new scene.
         if (window.location.pathname !== scenePath) return;
-        if (!Array.isArray(data)) throw new Error('Analysmotorn returnerade ett ogiltigt svar');
+        if (!Array.isArray(data)) throw new Error('The analysis engine returned an invalid response');
         renderRecognizeOverlay(data);
-        if (!data.length) notify('Inga ansikten hittades i bildrutan. Prova en annan bildruta.');
+        if (!data.length) notify('No faces were found in this frame. Try another frame.');
       } catch (err) {
         if (err.name === 'AbortError') {
-          notify('Analystimeout uppnådd', true);
+          notify('Analysis timed out', true);
         } else {
           console.error(err);
-          notify(`Fel vid ansiktsigenkänning: ${err.message || err}`, true);
+          notify(`Face recognition error: ${err.message || err}`, true);
         }
       }
     } catch (e) {
-      console.error('Oväntat fel i performFaceRecognition:', e);
-      notify('Oväntat fel vid ansiktsigenkänning', true);
+      console.error('Unexpected error in performFaceRecognition:', e);
+      notify('Unexpected face recognition error', true);
     } finally {
       setRecognitionBusy(false);
     }
@@ -1743,5 +1743,5 @@
     }
   }
 
-  init().catch(e => console.error('Initfel:', e));
+  init().catch(e => console.error('Initialization error:', e));
 })();

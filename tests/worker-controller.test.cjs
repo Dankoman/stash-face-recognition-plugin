@@ -13,7 +13,7 @@ test('worker assets are local and initialization errors reject instead of hangin
  t.workers[0].onerror();await assert.rejects(pending,/CSP/);assert.ok(t.workers[0].terminated);assert.ok(t.workers.revoked);assert.equal(t.timers.size,0);
 });
 test('timeout terminates the worker and permits a fresh engine on the next request',async()=>{
- const t=setup(),pending=t.api.health('face');t.timers.values().next().value();await assert.rejects(pending,/lång tid/);
+ const t=setup(),pending=t.api.health('face');t.timers.values().next().value();await assert.rejects(pending,/too long/);
  const next=t.api.health('face');assert.equal(t.workers.length,2);
  const worker=t.workers[1];worker.onmessage({data:{id:worker.data.id,result:{model_loaded:true},backend:'wasm'}});
  assert.equal((await next).backend,'wasm');assert.equal(t.timers.size,0);

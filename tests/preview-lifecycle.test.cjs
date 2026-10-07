@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const test=require('node:test');
 const source=fs.readFileSync('face-recognition.js','utf8');
-const entry="init().catch(e => console.error('Initfel:', e));";
+const entry="init().catch(e => console.error('Initialization error:', e));";
 class Element {
  constructor(tag='div') { this.tagName=tag;this.children=[];this.listeners=new Map();this.style={setProperty(k,v){this[k]=v;}};this.dataset={}; }
  get isConnected() { return this.root||!!this.parentNode?.isConnected; }
@@ -43,10 +43,10 @@ test('top-K 3 displays three candidates and previews even below the confidence t
  await settle();
  const rows=t.body.querySelector('.frp-suggestions').children;
  assert.equal(rows.length,3);
- assert.deepEqual(rows.map(row=>row.querySelector('img').alt),candidates.slice(0,3).map(c=>`Preview för ${c.name}`));
+ assert.deepEqual(rows.map(row=>row.querySelector('img').alt),candidates.slice(0,3).map(c=>`Preview for ${c.name}`));
  assert.equal(rows[0].querySelector('.frp-candidate-warning'),null);
- assert.equal(rows[1].querySelector('.frp-candidate-warning').textContent,'Osäkert förslag');
- assert.equal(rows[2].querySelector('.frp-candidate-warning').textContent,'Osäkert förslag');
+ assert.equal(rows[1].querySelector('.frp-candidate-warning').textContent,'Uncertain suggestion');
+ assert.equal(rows[2].querySelector('.frp-candidate-warning').textContent,'Uncertain suggestion');
  for(const row of rows) {
   const img=row.querySelector('img');assert.equal(img.src,'https://example.test/synthetic.png');img.onload();assert.equal(img.style.display,'block');
  }
@@ -61,7 +61,7 @@ test('missing or broken pictures keep the candidate selectable with a visible pl
   const t=setup({imageURL,settings:{max_suggestions:1}});t.api.render(result());await settle();
   const row=t.body.querySelector('.frp-candidate'),img=row.querySelector('img');
   if(imageURL) img.onerror();
-  assert.equal(row.querySelector('.frp-candidate-preview').children[0].textContent,'Bild saknas');
+  assert.equal(row.querySelector('.frp-candidate-preview').children[0].textContent,'No image available');
   await row.emit('click');assert.equal(t.body.querySelector('.frp-face-box'),null);
  }
 });

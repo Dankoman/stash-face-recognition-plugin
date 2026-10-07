@@ -6,7 +6,7 @@ let ort, detector, recognizer, embeddings, labels, backend, initialization;
 const asset = path => new URL(path, assetBase).href;
 async function read(path, kind) {
   const response = await fetch(asset(path), {credentials:'same-origin'});
-  if(!response.ok) throw new Error(`Pluginfil saknas: ${path} (${response.status})`);
+  if(!response.ok) throw new Error(`Missing plugin file: ${path} (${response.status})`);
   return kind==='json' ? response.json() : response.arrayBuffer();
 }
 async function sessions(provider) {
@@ -23,7 +23,7 @@ async function sessions(provider) {
     let result;
     try {
       result=await session.run({[session.inputNames[0]]:tensor});
-      if(session===recognizer && result[session.outputNames[0]].data.length!==512) throw new Error('Oväntat ArcFace-utdataformat');
+      if(session===recognizer && result[session.outputNames[0]].data.length!==512) throw new Error('Unexpected ArcFace output format');
     } finally { tensor.dispose(); if(result) Object.values(result).forEach(t=>t.dispose()); }
   }
   backend=provider;
@@ -41,7 +41,7 @@ async function initialize(preference='auto') {
     if(preference!=='cpu' && self.navigator.gpu) { try { gpu=!!(await self.navigator.gpu.requestAdapter()); } catch {} }
     if(gpu) {
       try { await sessions('webgpu'); }
-      catch(error) { self.postMessage({status:'GPU kunde inte startas. Använder CPU.'}); await sessions('wasm'); }
+      catch(error) { self.postMessage({status:'GPU could not start. Using CPU.'}); await sessions('wasm'); }
     } else await sessions('wasm');
     return {backend,model_loaded:true,identities:new Set(labels).size,samples:labels.length};
   })();
@@ -49,7 +49,7 @@ async function initialize(preference='auto') {
 }
 async function analyze(bitmap, topK) {
   const width=bitmap.width,height=bitmap.height;
-  if(!width||!height||width*height>16000000) throw new Error('Bildrutan är för stor eller ogiltig');
+  if(!width||!height||width*height>16000000) throw new Error('The frame is too large or invalid');
   const canvas=new OffscreenCanvas(width,height), ctx=canvas.getContext('2d',{willReadFrequently:true});
   ctx.drawImage(bitmap,0,0);
   const rgba=ctx.getImageData(0,0,width,height).data;
@@ -89,7 +89,7 @@ self.onmessage=({data})=>{
         try { result=await analyze(data.bitmap,data.topK); }
         catch(error) {
           if(backend!=='webgpu') throw error;
-          self.postMessage({status:'GPU-analys misslyckades. Försöker med CPU.'});
+          self.postMessage({status:'GPU analysis failed. Retrying with CPU.'});
           await sessions('wasm'); result=await analyze(data.bitmap,data.topK);
         }
       }

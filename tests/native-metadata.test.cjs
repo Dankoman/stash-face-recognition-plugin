@@ -25,7 +25,7 @@ test('partial names cannot import an unrelated identity',async()=>{
 });
 test('aliases can match and ambiguous identities require manual resolution',async()=>{
  const {client}=setup();assert.equal((await client.lookup('Alias')).performer.name,'Synthetic Person');
- const ambiguous=setup({rows:[{name:'Synthetic Person'},{name:'Synthetic Person'}]});await assert.rejects(ambiguous.client.lookup('Synthetic Person'),/tvetydig/);
+ const ambiguous=setup({rows:[{name:'Synthetic Person'},{name:'Synthetic Person'}]});await assert.rejects(ambiguous.client.lookup('Synthetic Person'),/ambiguous/);
 });
 test('provider failures are distinct from no match and missing configuration',async()=>{
  await assert.rejects(setup({fail:true}).client.lookup('Synthetic Person'),/provider offline/);
@@ -43,7 +43,7 @@ test('saved source ID resolves two exact name matches to the linked person',asyn
  const {client}=setup({rows:sameNameRows});
  const result=await client.lookup('Synthetic Person',[],{},undefined,linkedIdentity);
  assert.equal(result.performer.id,'linked-person');
- await assert.rejects(client.lookup('Synthetic Person'),/tvetydig/);
+ await assert.rejects(client.lookup('Synthetic Person'),/ambiguous/);
 });
 test('a saved ID is authoritative after a remote name change',async()=>{
  const {client}=setup({rows:[sameNameRows[0],{...sameNameRows[1],name:'Changed Name'}]});
@@ -114,11 +114,11 @@ test('all can use the next source after a provider error or ambiguous result',as
 test('all distinguishes no match from unavailable or ambiguous sources',async()=>{
  assert.equal(await setup({boxes:providerBoxes,rows:[]}).client.lookup('Synthetic Person',[],{metadata_source:'all'}),null);
  await assert.rejects(setup({boxes:providerBoxes,fail:true}).client.lookup('Synthetic Person',[],{metadata_source:'all'}),/provider offline/);
- await assert.rejects(setup({boxes:providerBoxes,rows:sameNameRows}).client.lookup('Synthetic Person',[],{metadata_source:'all'}),/tvetydig/);
+ await assert.rejects(setup({boxes:providerBoxes,rows:sameNameRows}).client.lookup('Synthetic Person',[],{metadata_source:'all'}),/ambiguous/);
 });
 test('all does not import unrelated providers or silently create a name-only profile without supported sources',async()=>{
  const {client}=setup({boxes:[{name:'Other source',endpoint:'https://example.test/graphql'}]});
- await assert.rejects(client.lookup('Synthetic Person',[],{metadata_source:'all'}),/Konfigurera StashDB/);
+ await assert.rejects(client.lookup('Synthetic Person',[],{metadata_source:'all'}),/Configure StashDB/);
 });
 test('all respects saved identities while searching linked sources in the fixed order',async()=>{
  const identity={stash_ids:[{endpoint:orderedEndpoints[0],stash_id:'linked-person'},{endpoint:orderedEndpoints[2],stash_id:'pmv-match'}]};

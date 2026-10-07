@@ -1,36 +1,36 @@
-# Face Recognition Plugin 3.0.2
+# Face Recognition Plugin 3.0.3
 
-Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och en paketerad igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
+A standalone Stash plugin that runs face analysis directly in the browser. The ZIP includes JavaScript, WebAssembly, SCRFD/ArcFace models and a packaged recognition database. No Go service, Python installation, CDN or separate analysis server is required to use the plugin.
 
-## Användning
+## Usage
 
-1. Öppna en scen och välj **Edit**. Identifiera-knappen visas enbart där.
-2. Starta videon och pausa vid önskad bildruta.
-3. Klicka **Identifiera**. För musen över ansiktsrutan för att visa resultatlistan med kandidatbilder och konfidens.
-4. Välj ett förslag för att lägga till personen i scenen. Automatisk koppling och skapande av nya performers styrs av inställningarna.
-5. Högerklicka på knappen för inställningar och **Testa analysmotor**.
+1. Open a scene and select **Edit**. The Identify button appears only there.
+2. Play the video and pause at the frame you want to analyze.
+3. Click **Identify**. Hover over the face box to display the results list with candidate images and confidence scores.
+4. Select a suggestion to add the performer to the scene. Settings control automatic linking and the creation of new performers.
+5. Right-click the button to open settings and **Test analysis engine**.
 
-Knappen visas inte på Details, andra scenflikar eller Settings. Ingen flytande knapp skapas. **Max förslag (topp-K)** styr antalet kandidater med varsin preview i listan. Förslag under **Minimum konfidens** visas med märkningen **Osäkert förslag**. Saknas en bild visas **Bild saknas**, och kandidaten går fortfarande att välja. Större förhandsbilder visas bredvid det aktiva förslaget och stängs vid val, avslutad hover, sidbyte eller när resultatet tas bort.
+The button does not appear on Details, other scene tabs or Settings. No floating button is created. **Max suggestions (top-K)** controls how many candidates appear with individual previews. Suggestions below **Minimum confidence** remain visible and are labeled **Uncertain suggestion**. If an image is unavailable, **No image available** is shown and the candidate can still be selected. Larger previews appear beside the active suggestion and close after selection, when hovering ends, on navigation or when the results are removed.
 
-## Analys
+## Analysis
 
-En bakgrundsarbetare laddar modellerna från pluginets egna Stash-adresser. `auto` provar WebGPU och återgår till CPU/WebAssembly när en GPU saknas eller modellen inte fungerar på den. `cpu` tvingar CPU. Motortestet kör båda modellerna innan det rapporterar att motorn är redo. GPU:n på datorn med webbläsaren används. Samma paket används på Windows och Linux; GPU-stöd beror på webbläsare och drivrutiner.
+A background worker loads models from the plugin's own Stash URLs. `auto` tries WebGPU and falls back to CPU/WebAssembly when a GPU is unavailable or the model cannot run on it. `cpu` forces CPU execution. The engine test runs both models before reporting readiness. The GPU on the computer running the browser is used. The same package works on Windows and Linux; GPU support depends on the browser and drivers.
 
-De första anropen inkluderar modelladdning. Motorn återanvänds därefter, och timeout avbryter arbetaren för att frigöra resurser. Modellerna körs utan krav på SharedArrayBuffer, COOP/COEP, CUDA eller ROCm. Videobilden skickas inte till någon analysserver.
+Initial requests include model loading. The engine is reused afterward, and a timeout terminates the worker to release resources. Models run without requiring SharedArrayBuffer, COOP/COEP, CUDA or ROCm. Video frames are not sent to an analysis server.
 
-Matchning använder exporterade 512-dimensionella embeddings och cosinusavstånd, med samma viktade grannröstning och poängmappning som Go-versionen. Koordinater räknas tillbaka till originalbilden. Justeringen använder en likformighetstransform med samma referenspunkter; numeriskt identiska resultat med OpenCV/RANSAC utlovas inte.
+Matching uses exported 512-dimensional embeddings and cosine distance, with the same weighted neighbor voting and score mapping as the Go version. Coordinates are mapped back to the original image. Alignment uses a similarity transform with the same reference points; numerically identical results to OpenCV/RANSAC are not guaranteed.
 
-## Metadata och bilder
+## Metadata and images
 
-Stashs egna GraphQL-uppslag används för konfigurerade Stash-box-källor: StashDB, ThePornDB, PMVStash och FansDB. API-nycklar begärs inte av pluginet. Konfigurera önskade källor under **Settings → Metadata Providers → Stash-Box Endpoints**; inga separata scrapers behöver installeras.
+The plugin uses Stash's native GraphQL lookups for configured Stash-box sources: StashDB, ThePornDB, PMVStash and FansDB. It does not request API keys. Configure your sources under **Settings → Metadata Providers → Stash-Box Endpoints**; no separate scrapers need to be installed.
 
-Välj **Alla** under Metadatakälla för sökordningen **StashDB → TPDB → PMVStash → FansDB**. Första entydiga träffen används och senare källor anropas inte. Ej konfigurerade källor hoppas över; ett källfel eller en tvetydig träff låter sökningen fortsätta till nästa källa. Om ingen entydig träff finns rapporteras källfelen. Övriga val använder den valda primärkällan först, följd av övriga konfigurerade källor. Exakta namn eller alias krävs. Befintliga personer matchas med sina sparade externa ID:n, så två personer med samma namn inte förväxlas. En person som redan finns i scenen kräver inget metadatauppslag. Tvetydiga träffar utan en sparad identitet stoppas. Ett källfel skiljs från en lyckad sökning utan träff, så ett fel inte skapar en person med enbart namn. De metadatafält som pluginet stöder och Stash accepterar vid import följer med. Bilder hämtas av Stash vid skapande/uppdatering, vilket undviker webbläsarens CORS-problem. Komplettering bevarar ifyllda lokala fält och kräver samma externa identitet.
+Select **All** under **Metadata source** to search in this order: **StashDB → TPDB → PMVStash → FansDB**. The first unambiguous match is used, and later sources are not queried. Unconfigured sources are skipped. A provider error or ambiguous match allows the search to continue with the next source. If no unambiguous match is found, provider errors are reported. Other choices try the selected primary source first, followed by the other configured sources. Exact names or aliases are required. Existing performers are matched using their saved external IDs to avoid confusing people with the same name. A performer already attached to the scene requires no metadata lookup. Ambiguous matches without a saved identity are rejected. A provider error is distinguished from a successful search with no match, so an error does not create a name-only performer. Supported metadata fields accepted by Stash are included in the import. Stash downloads images during creation or updates, avoiding browser CORS issues. Enrichment preserves populated local fields and requires the same external identity.
 
 ## Installation
 
-Se [INSTALLATION.md](INSTALLATION.md). Installera eller uppgradera via Stash med `main/index.yml` som plugin-källa. GitHub-versionen 3.0.2 innehåller det kompletta ZIP-paketet med modeller, runtime och igenkänningsdata.
+See [INSTALLATION.md](INSTALLATION.md). Install or upgrade through Stash using `main/index.yml` as the plugin source. GitHub release 3.0.3 includes the complete ZIP with models, runtime and recognition data.
 
-## Verifiering
+## Verification
 
 ```sh
 node --check face-recognition.js
@@ -39,8 +39,8 @@ node --check assets/recognition-worker.js
 node --test tests/*.test.cjs
 ```
 
-`tests/browser-smoke.html` kör de faktiska paketerade modellerna på syntetisk media, också med CSP som tillåter WebAssembly men inte allmän JavaScript-eval. `tests/ui-placement.html` verifierar knappens placering med Stashs observerade DOM-struktur. Testserver och Node/Python används bara under utveckling.
+`tests/browser-smoke.html` runs the actual packaged models on synthetic media, including under a CSP that permits WebAssembly but not general JavaScript eval. `tests/ui-placement.html` checks button placement using Stash's observed DOM structure. The test server and Node/Python are used only during development.
 
-Verifierat i Chrome/Linux: modellerna körs på CPU, analys av pausad video fungerar, befintliga performers kan väljas utan tvetydiga namnsökningar och previewn placeras vid förslaget och tas bort efter valet. Knappen visas enbart i Edit. 64 automatiserade tester täcker även metadataimport, inställningar, arbetaren och fördröjd preview-laddning.
+Verified in Chrome/Linux: models run on CPU, paused video analysis works, existing performers can be selected without ambiguous name searches, and previews appear beside suggestions and disappear after selection. The button appears only in Edit. The 64 automated tests also cover metadata import, settings, the worker and delayed preview loading.
 
-Windows, AMD/Nvidia-acceleration, bredare träffsäkerhet och full metadataimport mot livekällor är ännu inte verifierade. WebGPU-stöd beror på webbläsare och drivrutiner; CPU/WebAssembly används som fallback.
+Windows, AMD/Nvidia acceleration, broader recognition accuracy and complete metadata import against live providers have not yet been verified. WebGPU support depends on the browser and drivers; CPU/WebAssembly is used as a fallback.

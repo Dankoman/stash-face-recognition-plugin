@@ -1,6 +1,6 @@
 name: Face Recognition Plugin
-description: Plugin för ansiktsigenkänning som kan pausa scener, extrahera bilder, visa bounding boxes med namn som overlay och lägga till identifierade personer till scenen
-version: 3.0.2
+description: Face recognition plugin that can pause scenes, capture frames, display named bounding boxes and add identified performers to a scene
+version: 3.0.3
 url: https://github.com/Dankoman/stash-face-recognition-plugin
 
 ui:
@@ -26,42 +26,42 @@ ui:
 
 settings:
   compute_backend:
-    displayName: Analysmotor
-    description: auto använder WebGPU om tillgänglig, cpu använder WebAssembly.
+    displayName: Analysis engine
+    description: auto uses WebGPU when available; cpu uses WebAssembly.
     type: STRING
   api_timeout:
-    displayName: Analystimeout (sekunder)
-    description: Maximal tid inklusive modelladdning (30–600 sekunder). Förvalt 180.
+    displayName: Analysis timeout (seconds)
+    description: Maximum time including model loading (30–600 seconds). Default 180.
     type: NUMBER
   show_confidence:
-    displayName: Visa konfidensgrad
-    description: Visa konfidensgrad i procent för identifierade ansikten
+    displayName: Show confidence
+    description: Show confidence as a percentage for identified faces
     type: BOOLEAN
   min_confidence:
-    displayName: Minimum konfidensgrad
-    description: Förslag under gränsen (0-100) märks som osäkra och visas fortfarande.
+    displayName: Minimum confidence
+    description: Suggestions below the threshold (0-100) are marked as uncertain and remain visible.
     type: NUMBER
   auto_add_performers:
-    displayName: Lägg till performers automatiskt
-    description: Lägg automatiskt till identifierade personer till scenen
+    displayName: Automatically add performers
+    description: Automatically add identified performers to the scene
     type: BOOLEAN
   create_new_performers:
-    displayName: Skapa nya performers
-    description: Skapa nya performer-poster för okända ansikten
+    displayName: Create new performers
+    description: Create new performer records for unknown faces
     type: BOOLEAN
   max_suggestions:
-    displayName: Max förslag (topp-K)
-    description: Antal kandidater med varsin preview per ansikte (1-10).
+    displayName: Max suggestions (top-K)
+    description: Number of candidates with individual previews per face (1-10).
     type: NUMBER
   image_source:
-    displayName: Bildkälla
-    description: Källa för preview-bilder (local, stashdb, eller both)
+    displayName: Image source
+    description: Source for preview images (local, stashdb, or both)
     type: STRING
   stashdb_endpoint:
-    displayName: StashDB Endpoint
-    description: URL till StashDB GraphQL-endpoint (t.ex. https://stashdb.org/graphql)
+    displayName: StashDB endpoint
+    description: StashDB GraphQL endpoint URL (e.g. https://stashdb.org/graphql)
     type: STRING
   metadata_source:
-    displayName: Metadatakälla
-    description: all söker StashDB, TPDB, PMVStash och FansDB i den ordningen och tar första entydiga träffen. Välj annars stashdb, tpdb, pmvstash eller fansdb som primär källa.
+    displayName: Metadata source
+    description: all searches StashDB, TPDB, PMVStash and FansDB in that order and uses the first unambiguous match. Otherwise select stashdb, tpdb, pmvstash or fansdb as the primary source.
     type: STRING

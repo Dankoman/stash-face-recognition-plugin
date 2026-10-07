@@ -1,54 +1,54 @@
-# Installation av Face Recognition 3.0.2
+# Installing Face Recognition 3.0.3
 
-## Installera och uppdatera via Stash
+## Install and update through Stash
 
-1. Öppna **Settings → Plugins** och lägg till eller redigera plugin-källan **Dankoman Final Face**.
-2. Använd källadressen `https://raw.githubusercontent.com/Dankoman/stash-face-recognition-plugin/main/index.yml`.
-3. Installera **Face Recognition Plugin**, eller välj paketet och uppdatera det.
-4. Ladda om webbläsarsidan. Högerklicka **Identifiera** på en scens **Edit**-flik och välj **Testa analysmotor**.
+1. Open **Settings → Plugins** and add or edit the **Dankoman Final Face** plugin source.
+2. Use the source URL `https://raw.githubusercontent.com/Dankoman/stash-face-recognition-plugin/main/index.yml`.
+3. Install **Face Recognition Plugin**, or select the package and update it.
+4. Reload the browser page. Right-click **Identify** on a scene's **Edit** tab and select **Test analysis engine**.
 
-Paketet innehåller alla analysfiler. Ingen separat tjänst eller runtime-installation behövs. Om du kommer från experimentgrenen behöver paketet installeras från main-källan så att framtida uppgraderingar använder den.
+The package contains all analysis files. No separate service or runtime installation is required. If you are upgrading from the experimental branch, install the package from the main source so that future upgrades use it.
 
-## Manuell installation av komplett pluginpaket
+## Manually install the complete plugin package
 
-1. Säkerhetskopiera den installerade pluginmappen och dess inställningar.
-2. Packa upp `face-recognition-3.0.2.zip` från GitHub-versionen 3.0.2 i den befintliga `face-recognition`-pluginmappen. Behåll `assets/` och dess underkataloger; de innehåller alla analysfiler.
-3. Klicka **Reload plugins** i Stash och ladda om webbläsarsidan.
-4. Öppna en scen, välj **Edit**, högerklicka **Identifiera** och välj **Testa analysmotor**.
-5. Kontrollera analysen på en pausad bildruta och att det inte finns någon Identifiera-knapp på Details eller Settings.
+1. Back up the installed plugin folder and its settings.
+2. Extract `face-recognition-3.0.3.zip` from GitHub release 3.0.3 into the existing `face-recognition` plugin folder. Keep `assets/` and its subdirectories; they contain all analysis files.
+3. Click **Reload plugins** in Stash and reload the browser page.
+4. Open a scene, select **Edit**, right-click **Identify** and select **Test analysis engine**.
+5. Check analysis on a paused frame and confirm that no Identify button appears on Details or Settings.
 
-Ingen extern process startas av pluginet. `/face-api` används inte. Tidigare API URL-inställning ignoreras. Befintliga funktionella inställningar behålls; den gamla API-timeouten ersätts vid första inläsning med 180 sekunder eftersom modellerna nu laddas i webbläsaren.
+The plugin does not start an external process or use `/face-api`. The old API URL setting is ignored. Existing functional settings are preserved; the old API timeout is replaced with 180 seconds on the first load because models now load in the browser.
 
-Metadata behöver de källor du vill använda under Stashs **Settings → Metadata Providers → Stash-Box Endpoints**. Befintliga nycklar i StashAPI:s miljöfil migreras inte automatiskt till Stash. Pluginet läser inga nycklar och fungerar för analys utan externa metadatakällor. Källornas vanliga konton/nycklar behövs fortfarande för extern metadata.
+For metadata, configure the sources you want under Stash's **Settings → Metadata Providers → Stash-Box Endpoints**. Existing keys in the StashAPI environment file are not automatically migrated to Stash. The plugin does not read keys and can run analysis without external metadata sources. Each provider's usual account or API key is still required for external metadata.
 
-## Metadatakälla
+## Metadata source
 
-Välj **Alla (StashDB → TPDB → PMVStash → FansDB)** i pluginets inställningspanel för att använda första entydiga träffen från källorna i den ordningen. I Stashs generiska plugin-inställningar anges samma val som `all` (även `alla` accepteras). Källorna behöver vara konfigurerade under **Metadata Providers**.
+Select **All (StashDB → TPDB → PMVStash → FansDB)** in the plugin settings panel to use the first unambiguous match from the sources in that order. In Stash's generic plugin settings, enter `all` for the same option (the legacy value `alla` is also accepted). Sources must be configured under **Metadata Providers**.
 
-## Uppdatering och återställning
+## Updates and rollback
 
-Byt hela pluginpaketet, ladda om plugins och webbsidan efter en uppdatering. Igenkänningsdatabasen är en ögonblicksbild i paketet: nya träningsresultat behöver paketeras som en uppdatering. Pluginet läser inte en levande Python-pickle eller Go-exportkatalog på servern.
+Replace the complete plugin package and reload plugins and the browser page after an update. The recognition database is a snapshot included in the package: new training results must be packaged as an update. The plugin does not read a live Python pickle or Go export directory on the server.
 
-Återställ den säkerhetskopierade pluginmappen och inställningarna för att återgå till 2.4.2. Go-tjänsten behövs bara om du återgår till den gamla versionen.
+Restore the backed-up plugin folder and settings to return to 2.4.2. The Go service is required only if you return to the old version.
 
-## Bygga paketet (enbart utvecklare)
+## Build the package (developers only)
 
-Python och npm behövs bara på byggdatorn. Slutanvändaren installerar ZIP-paketet.
+Python and npm are required only on the build computer. End users install the ZIP package.
 
-- Hämta `onnxruntime-web@1.24.3` från npm med `npm pack`.
-- Lägg `ort.webgpu.bundle.min.mjs`, båda `ort-wasm-simd-threaded.jsep.*`, båda `ort-wasm-simd-threaded.asyncify.*` samt ONNX Runtimes MIT-licens i `assets/runtime/`.
-- Lägg `det_10g.onnx` och `w600k_r50.onnx` från befintlig buffalo_l-installation i `assets/models/`.
-- Lägg `embeddings.bin` och `labels.json` från din befintliga export i `assets/gallery/`.
-- Kör `python tools/build-package.py`. Valfria flaggor: `--models`, `--gallery`, `--runtime`, `--output`.
+- Download `onnxruntime-web@1.24.3` from npm using `npm pack`.
+- Place `ort.webgpu.bundle.min.mjs`, both `ort-wasm-simd-threaded.jsep.*` files, both `ort-wasm-simd-threaded.asyncify.*` files and the ONNX Runtime MIT license in `assets/runtime/`.
+- Place `det_10g.onnx` and `w600k_r50.onnx` from the existing buffalo_l installation in `assets/models/`.
+- Place `embeddings.bin` and `labels.json` from your existing export in `assets/gallery/`.
+- Run `python tools/build-package.py`. Optional flags: `--models`, `--gallery`, `--runtime`, `--output`.
 
-Byggaren verifierar databasens storlek, skapar en filmanifest med SHA-256, kontrollerar ZIP-integriteten och skriver en separat checksumma. Genererade modeller, igenkänningsdata, runtimefiler och paket ignoreras av Git. Det kompletta paketet publiceras separat som en GitHub-release; koden och byggaren finns på main.
+The builder verifies the database size, creates a file manifest with SHA-256 hashes, checks ZIP integrity and writes a separate checksum. Generated models, recognition data, runtime files and packages are ignored by Git. The complete package is published separately as a GitHub release; the code and builder are on main.
 
-## Felsökning
+## Troubleshooting
 
-- **Pluginfil saknas:** installera hela ZIP-innehållet inklusive `assets/`.
-- **Modellstart/CSP-fel:** kontrollera att pluginets CSP laddats efter Reload plugins. WebAssembly behöver `wasm-unsafe-eval`; arbetaren startas via en blob-URL och behöver `worker-src blob:`.
-- **Långsam analys:** motortestet visar aktiv backend. CPU fungerar utan extra program men kan vara långsammare än GPU.
-- **Metadatakälla saknas:** konfigurera Stash-box i Stash, inte i Go-tjänsten.
-- **Tomma resultat:** testa en tydligare pausad bildruta; en tom bild ger en tom resultatlista.
+- **Missing plugin file:** install the complete ZIP contents, including `assets/`.
+- **Model initialization/CSP error:** check that the plugin CSP has loaded after Reload plugins. WebAssembly requires `wasm-unsafe-eval`; the worker starts through a blob URL and requires `worker-src blob:`.
+- **Slow analysis:** the engine test reports the active backend. CPU works without additional software but may be slower than GPU.
+- **Missing metadata source:** configure Stash-box in Stash, not in the Go service.
+- **Empty results:** try a clearer paused frame; an empty image produces an empty results list.
 
-Windows, AMD/Nvidia-GPU och full metadataimport mot livekällor är ännu inte verifierade. Chrome/Linux och CPU-analys samt befintliga performer-kopplingar och preview har testats i Stash.
+Windows, AMD/Nvidia GPUs and complete metadata import against live providers have not yet been verified. Chrome/Linux, CPU analysis, existing performer linking and previews have been tested in Stash.

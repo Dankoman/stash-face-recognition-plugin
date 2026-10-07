@@ -6,13 +6,13 @@ const vm = require('node:vm');
 
 // Exercise the real click handler with synthetic media and a mocked browser engine.
 const source = fs.readFileSync(path.join(__dirname, '..', 'face-recognition.js'), 'utf8');
-const entrypoint = "init().catch(e => console.error('Initfel:', e));";
+const entrypoint = "init().catch(e => console.error('Initialization error:', e));";
 assert.ok(source.includes(entrypoint));
 
 function setup({ response = [], fetchError, readyState = 4, blob = new Blob(['synthetic']) } = {}) {
   const notifications = [];
   const requests = [];
-  const label = { textContent: 'Identifiera' };
+  const label = { textContent: 'Identify' };
   const button = {
     disabled: false,
     attributes: {},
@@ -64,7 +64,7 @@ test('a pending request shows progress, blocks duplicate clicks, and reports an 
   await Promise.resolve();
   assert.equal(ui.button.disabled, true);
   assert.equal(ui.button.attributes['aria-busy'], 'true');
-  assert.equal(ui.label.textContent, 'Analyserar…');
+  assert.equal(ui.label.textContent, 'Analyzing…');
   await ui.run();
   assert.equal(ui.requests.length, 1);
   assert.equal(ui.requests[0].topK, 3);
@@ -73,8 +73,8 @@ test('a pending request shows progress, blocks duplicate clicks, and reports an 
   await pending;
   assert.equal(ui.button.disabled, false);
   assert.equal(ui.button.attributes['aria-busy'], 'false');
-  assert.equal(ui.label.textContent, 'Identifiera');
-  assert.match(ui.notifications.at(-1), /Inga ansikten hittades/);
+  assert.equal(ui.label.textContent, 'Identify');
+  assert.match(ui.notifications.at(-1), /No faces were found/);
 });
 
 test('a failed request reports its error and restores the button', async () => {
@@ -90,7 +90,7 @@ test('an unexpected engine response is reported instead of being treated as an e
   ui.releaseRequest();
   await ui.run();
   assert.equal(ui.button.disabled, false);
-  assert.match(ui.notifications.at(-1), /ogiltigt svar/);
+  assert.match(ui.notifications.at(-1), /invalid response/);
 });
 
 test('a video without a decoded frame is not sent to the engine', async () => {
@@ -98,7 +98,7 @@ test('a video without a decoded frame is not sent to the engine', async () => {
   await ui.run();
   assert.equal(ui.requests.length, 0);
   assert.equal(ui.button.disabled, false);
-  assert.match(ui.notifications.at(-1), /Video ej redo/);
+  assert.match(ui.notifications.at(-1), /Video is not ready/);
 });
 
 test('failure to capture a frame restores the button without sending a request', async () => {
@@ -106,5 +106,5 @@ test('failure to capture a frame restores the button without sending a request',
   await ui.run();
   assert.equal(ui.requests.length, 0);
   assert.equal(ui.button.disabled, false);
-  assert.match(ui.notifications.at(-1), /Kunde inte skapa bild/);
+  assert.match(ui.notifications.at(-1), /Could not capture an image/);
 });

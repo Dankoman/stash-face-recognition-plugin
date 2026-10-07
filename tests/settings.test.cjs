@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '..', 'face-recognition.js'), 'utf8');
-const entry = "init().catch(e => console.error('Initfel:', e));";
+const entry = "init().catch(e => console.error('Initialization error:', e));";
 function setup(response) {
   const storage = new Map([['face_recognition_plugin_settings', '{"api_url":"https://stale.test","stashdb_api_key":"old"}']]);
   const requests = [], warnings = [], timers = [];

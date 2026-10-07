@@ -20,7 +20,7 @@
     for (let s=0; s<3; s++) {
       const stride = [8,16,32][s], grid = 640/stride;
       const scores = outputs[names[s]].data, boxes = outputs[names[s+3]].data, kps = outputs[names[s+6]].data;
-      if (scores.length !== grid*grid*2 || boxes.length !== scores.length*4 || kps.length !== scores.length*10) throw new Error('Oväntat SCRFD-utdataformat');
+      if (scores.length !== grid*grid*2 || boxes.length !== scores.length*4 || kps.length !== scores.length*10) throw new Error('Unexpected SCRFD output format');
       for (let i=0; i<scores.length; i++) {
         if (scores[i]<threshold) continue;
         const cell = Math.floor(i/2), x = (cell%grid)*stride, y = Math.floor(cell/grid)*stride;
@@ -41,13 +41,13 @@
       x-=px; y-=py; const u=target[i][0]-qx, v=target[i][1]-qy;
       den+=x*x+y*y; a+=x*u+y*v; b+=x*v-y*u;
     });
-    if (den<1e-8) throw new Error('Ogiltiga ansiktslandmärken');
+    if (den<1e-8) throw new Error('Invalid face landmarks');
     a/=den; b/=den;
     return [a,b,qx-a*px+b*py,qy-b*px-a*py];
   }
   function alignedTensor(rgba, width, height, points) {
     const [a,b,tx,ty] = alignment(points), determinant = a*a+b*b;
-    if (determinant<1e-12) throw new Error('Ansiktet kunde inte justeras');
+    if (determinant<1e-12) throw new Error('Could not align the face');
     const out = new Float32Array(3*112*112);
     const sample = (x,y,c)=>x<0||y<0||x>=width||y>=height ? 0 : rgba[(y*width+x)*4+c];
     for(let y=0;y<112;y++) for(let x=0;x<112;x++) {
@@ -61,21 +61,21 @@
     return out;
   }
   function normalizeGallery(embeddings, labels, dimension=512) {
-    if (!labels.length || embeddings.length!==labels.length*dimension || labels.some(l=>typeof l!=='string'||!l)) throw new Error('Ogiltig igenkänningsdatabas');
+    if (!labels.length || embeddings.length!==labels.length*dimension || labels.some(l=>typeof l!=='string'||!l)) throw new Error('Invalid recognition database');
     for(let row=0;row<labels.length;row++) {
       let norm=0; const start=row*dimension;
-      for(let i=0;i<dimension;i++) { const v=embeddings[start+i]; if(!Number.isFinite(v)) throw new Error('Ogiltig embedding'); norm+=v*v; }
+      for(let i=0;i<dimension;i++) { const v=embeddings[start+i]; if(!Number.isFinite(v)) throw new Error('Invalid embedding'); norm+=v*v; }
       norm=Math.sqrt(norm);
-      if (!norm) throw new Error('Tom embedding');
+      if (!norm) throw new Error('Empty embedding');
       for(let i=0;i<dimension;i++) embeddings[start+i]/=norm;
     }
     return embeddings;
   }
   function rank(query, embeddings, labels, topK=3) {
     const dim=query.length;
-    if(dim!==512 || embeddings.length!==labels.length*dim) throw new Error('Embeddingdimensionerna stämmer inte');
+    if(dim!==512 || embeddings.length!==labels.length*dim) throw new Error('Embedding dimensions do not match');
     const norm=Math.sqrt(query.reduce((sum,v)=>sum+v*v,0));
-    if(!norm || !Number.isFinite(norm)) throw new Error('Ogiltigt ansiktsresultat');
+    if(!norm || !Number.isFinite(norm)) throw new Error('Invalid face result');
     const k=Math.min(labels.length,Math.max(1,Math.min(10,Math.floor(topK)||3))), nearest=[];
     for(let row=0;row<labels.length;row++) {
       let dot=0; for(let i=0;i<dim;i++) dot+=query[i]*embeddings[row*dim+i];
