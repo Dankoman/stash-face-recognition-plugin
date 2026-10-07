@@ -1,6 +1,6 @@
-# Face Recognition Plugin 3.0.0-dev.5
+# Face Recognition Plugin 3.0.0
 
-Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och din exporterade igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
+Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och en paketerad igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
 
 ## Användning
 
@@ -24,11 +24,11 @@ Matchning använder exporterade 512-dimensionella embeddings och cosinusavstånd
 
 Stashs egna GraphQL-uppslag används för konfigurerade Stash-box-källor: StashDB, ThePornDB, PMVStash och FansDB. API-nycklar begärs inte av pluginet. Konfigurera önskade källor under **Settings → Metadata Providers → Stash-Box Endpoints**; inga separata scrapers behöver installeras.
 
-Primärkällan provas först, följd av övriga konfigurerade källor. Exakta namn eller alias krävs. Befintliga personer matchas med sina sparade externa ID:n, så två personer med samma namn inte förväxlas. En person som redan finns i scenen kräver inget metadatauppslag. Tvetydiga träffar utan en sparad identitet stoppas. Ett källfel skiljs från en lyckad sökning utan träff, så ett fel inte skapar en person med enbart namn. Alla fält som Stash exponerar genom `ScrapedPerformer` och accepterar vid import följer med. Bilder hämtas av Stash vid skapande/uppdatering, vilket undviker webbläsarens CORS-problem. Komplettering bevarar ifyllda lokala fält och kräver samma externa identitet.
+Primärkällan provas först, följd av övriga konfigurerade källor. Exakta namn eller alias krävs. Befintliga personer matchas med sina sparade externa ID:n, så två personer med samma namn inte förväxlas. En person som redan finns i scenen kräver inget metadatauppslag. Tvetydiga träffar utan en sparad identitet stoppas. Ett källfel skiljs från en lyckad sökning utan träff, så ett fel inte skapar en person med enbart namn. De metadatafält som pluginet stöder och Stash accepterar vid import följer med. Bilder hämtas av Stash vid skapande/uppdatering, vilket undviker webbläsarens CORS-problem. Komplettering bevarar ifyllda lokala fält och kräver samma externa identitet.
 
 ## Installation
 
-Se [INSTALLATION.md](INSTALLATION.md). Det lokala experimentpaketet finns i `dist/face-recognition-3.0.0-dev.5.zip`. Denna grens `index.yml` publicerar experimentversionen för uppgradering via Stash.
+Se [INSTALLATION.md](INSTALLATION.md). Installera eller uppgradera via Stash med `main/index.yml` som plugin-källa. GitHub-versionen 3.0.0 innehåller det kompletta ZIP-paketet med modeller, runtime och igenkänningsdata.
 
 ## Verifiering
 
@@ -41,4 +41,6 @@ node --test tests/*.test.cjs
 
 `tests/browser-smoke.html` kör de faktiska paketerade modellerna på syntetisk media, också med CSP som tillåter WebAssembly men inte allmän JavaScript-eval. `tests/ui-placement.html` verifierar knappens placering med Stashs observerade DOM-struktur. Testserver och Node/Python används bara under utveckling.
 
-Lokalt verifierat i Chrome/Linux: båda modellerna laddas och körs på CPU, tom bild returnerar inga ansikten, knappen finns enbart i Edit. Den aktuella Chrome-sessionen erbjöd ingen användbar WebGPU-adapter. Windows, AMD/Nvidia-acceleration, träffsäkerhet på riktiga scener och metadataimport mot dina livekällor återstår att verifiera innan versionen är färdig för normal drift.
+Verifierat i Chrome/Linux: modellerna körs på CPU, analys av pausad video fungerar, befintliga performers kan väljas utan tvetydiga namnsökningar och previewn placeras vid förslaget och tas bort efter valet. Knappen visas enbart i Edit. 50 automatiserade tester täcker även metadataimport, inställningar, arbetaren och fördröjd preview-laddning.
+
+Windows, AMD/Nvidia-acceleration, bredare träffsäkerhet och full metadataimport mot livekällor är ännu inte verifierade. WebGPU-stöd beror på webbläsare och drivrutiner; CPU/WebAssembly används som fallback.

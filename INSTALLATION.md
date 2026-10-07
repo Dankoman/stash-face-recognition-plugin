@@ -1,9 +1,18 @@
-# Installation av 3.0-experimentet
+# Installation av Face Recognition 3.0.0
 
-## Komplett pluginpaket
+## Installera och uppdatera via Stash
+
+1. Öppna **Settings → Plugins** och lägg till eller redigera plugin-källan **Dankoman Final Face**.
+2. Använd källadressen `https://raw.githubusercontent.com/Dankoman/stash-face-recognition-plugin/main/index.yml`.
+3. Installera **Face Recognition Plugin**, eller välj paketet och uppdatera det.
+4. Ladda om webbläsarsidan. Högerklicka **Identifiera** på en scens **Edit**-flik och välj **Testa analysmotor**.
+
+Paketet innehåller alla analysfiler. Ingen separat tjänst eller runtime-installation behövs. Om du kommer från experimentgrenen behöver paketet installeras från main-källan så att framtida uppgraderingar använder den.
+
+## Manuell installation av komplett pluginpaket
 
 1. Säkerhetskopiera den installerade pluginmappen och dess inställningar.
-2. Packa upp `dist/face-recognition-3.0.0-dev.5.zip` i den befintliga `face-recognition`-pluginmappen. Behåll `assets/` och dess underkataloger; de innehåller alla analysfiler.
+2. Packa upp `face-recognition-3.0.0.zip` från GitHub-versionen 3.0.0 i den befintliga `face-recognition`-pluginmappen. Behåll `assets/` och dess underkataloger; de innehåller alla analysfiler.
 3. Klicka **Reload plugins** i Stash och ladda om webbläsarsidan.
 4. Öppna en scen, välj **Edit**, högerklicka **Identifiera** och välj **Testa analysmotor**.
 5. Kontrollera analysen på en pausad bildruta och att det inte finns någon Identifiera-knapp på Details eller Settings.
@@ -16,7 +25,7 @@ Metadata behöver de källor du vill använda under Stashs **Settings → Metada
 
 Byt hela pluginpaketet, ladda om plugins och webbsidan efter en uppdatering. Igenkänningsdatabasen är en ögonblicksbild i paketet: nya träningsresultat behöver paketeras som en uppdatering. Pluginet läser inte en levande Python-pickle eller Go-exportkatalog på servern.
 
-Återställ den säkerhetskopierade pluginmappen och inställningarna för att återgå till 2.4.2. Den befintliga Go-tjänsten har inte ändrats av detta experiment.
+Återställ den säkerhetskopierade pluginmappen och inställningarna för att återgå till 2.4.2. Go-tjänsten behövs bara om du återgår till den gamla versionen.
 
 ## Bygga paketet (enbart utvecklare)
 
@@ -28,14 +37,14 @@ Python och npm behövs bara på byggdatorn. Slutanvändaren installerar ZIP-pake
 - Lägg `embeddings.bin` och `labels.json` från din befintliga export i `assets/gallery/`.
 - Kör `python tools/build-package.py`. Valfria flaggor: `--models`, `--gallery`, `--runtime`, `--output`.
 
-Byggaren verifierar databasens storlek, skapar en filmanifest med SHA-256, kontrollerar ZIP-integriteten och skriver en separat checksumma. Genererade modeller, privat igenkänningsdata, runtimefiler och paket ignoreras av Git. Koden och byggaren ligger i experimentgrenen.
+Byggaren verifierar databasens storlek, skapar en filmanifest med SHA-256, kontrollerar ZIP-integriteten och skriver en separat checksumma. Genererade modeller, igenkänningsdata, runtimefiler och paket ignoreras av Git. Det kompletta paketet publiceras separat som en GitHub-release; koden och byggaren finns på main.
 
 ## Felsökning
 
 - **Pluginfil saknas:** installera hela ZIP-innehållet inklusive `assets/`.
-- **Modellstart/CSP-fel:** kontrollera att pluginets CSP laddats efter Reload plugins. WebAssembly behöver `wasm-unsafe-eval`; arbetaren behöver `worker-src 'self'`.
+- **Modellstart/CSP-fel:** kontrollera att pluginets CSP laddats efter Reload plugins. WebAssembly behöver `wasm-unsafe-eval`; arbetaren startas via en blob-URL och behöver `worker-src blob:`.
 - **Långsam analys:** motortestet visar aktiv backend. CPU fungerar utan extra program men kan vara långsammare än GPU.
 - **Metadatakälla saknas:** konfigurera Stash-box i Stash, inte i Go-tjänsten.
 - **Tomma resultat:** testa en tydligare pausad bildruta; en tom bild ger en tom resultatlista.
 
-Experimentet är ännu inte verifierat på Windows, AMD/Nvidia-GPU eller med full metadataimport i den aktiva Stash-installationen.
+Windows, AMD/Nvidia-GPU och full metadataimport mot livekällor är ännu inte verifierade. Chrome/Linux och CPU-analys samt befintliga performer-kopplingar och preview har testats i Stash.
