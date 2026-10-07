@@ -15,7 +15,7 @@ def build():
     parser.add_argument("--models", type=Path, default=ROOT / "assets/models")
     parser.add_argument("--gallery", type=Path, default=ROOT / "assets/gallery")
     parser.add_argument("--runtime", type=Path, default=ROOT / "assets/runtime")
-    parser.add_argument("--output", type=Path, default=ROOT / "dist/face-recognition-3.0.0-dev.zip")
+    parser.add_argument("--output", type=Path, default=ROOT / "dist/face-recognition-3.0.0-dev.1.zip")
     args = parser.parse_args()
     files = {name: ROOT / name for name in SOURCES}
     files.update({"assets/runtime/" + name: args.runtime / name for name in RUNTIME})
@@ -29,7 +29,7 @@ def build():
         parser.error("labels.json must contain a nonempty list of identity names")
     if (args.gallery / "embeddings.bin").stat().st_size != len(labels) * 512 * 4:
         parser.error("embeddings.bin must contain one 512-dimensional float32 row per label")
-    manifest = {"version": "3.0.0-dev", "runtime": "onnxruntime-web@1.24.3", "samples": len(labels), "files": {}}
+    manifest = {"version": "3.0.0-dev.1", "runtime": "onnxruntime-web@1.24.3", "samples": len(labels), "files": {}}
     for name, path in files.items():
         manifest["files"][name] = {"bytes": path.stat().st_size, "sha256": hashlib.file_digest(path.open('rb'), 'sha256').hexdigest()}
     args.output.parent.mkdir(parents=True, exist_ok=True)

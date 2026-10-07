@@ -1,4 +1,4 @@
-# Face Recognition Plugin 3.0.0-dev
+# Face Recognition Plugin 3.0.0-dev.1
 
 Fristående Stash-plugin med ansiktsanalys direkt i webbläsaren. ZIP-paketet innehåller JavaScript, WebAssembly, SCRFD/ArcFace-modeller och din exporterade igenkänningsdatabas. Ingen Go-tjänst, Pythoninstallation, CDN eller separat analysserver behövs för att använda pluginet.
 
@@ -28,7 +28,7 @@ Primärkällan provas först, följd av övriga konfigurerade källor. Exakta na
 
 ## Installation
 
-Se [INSTALLATION.md](INSTALLATION.md). Det lokala experimentpaketet finns i `dist/face-recognition-3.0.0-dev.zip`. Det vanliga `index.yml` och gamla ZIP-arkivet är fortfarande för den stabila 2.4.2-versionen; använd experimentpaketet för denna gren.
+Se [INSTALLATION.md](INSTALLATION.md). Det lokala experimentpaketet finns i `dist/face-recognition-3.0.0-dev.1.zip`. Det vanliga `index.yml` och gamla ZIP-arkivet är fortfarande för den stabila 2.4.2-versionen; använd experimentpaketet för denna gren.
 
 ## Verifiering
 
