@@ -1,6 +1,6 @@
 (function(root) {
   'use strict';
-  let worker=null, workerURL=null, sequence=0;
+  let worker=null, workerURL=null, sequence=0, workerGeneration=0;
   const pending=new Map();
   function reset(reason) {
     if(worker) worker.terminate(); worker=null;
@@ -12,8 +12,12 @@
     if(!pluginId) return Promise.reject(new Error('The plugin ID has not loaded. Reload Stash.'));
     if(!worker) {
       const base=new URL(`/plugin/${encodeURIComponent(pluginId)}/assets/face/`,root.location.href).href;
+      // A fresh worker must see the installed script even when Stash asset URLs
+      // remain unchanged between plugin releases. Keep the asset base stable.
+      const script=new URL('recognition-worker.js',base);
+      script.searchParams.set('reload',`${Date.now()}-${++workerGeneration}`);
       // Stash permits blob workers; its plugin CSP format cannot add worker-src.
-      const bootstrap=`self.FaceRecognitionAssetBase=${JSON.stringify(base)};importScripts(${JSON.stringify(base+'recognition-worker.js')});`;
+      const bootstrap=`self.FaceRecognitionAssetBase=${JSON.stringify(base)};importScripts(${JSON.stringify(script.href)});`;
       workerURL=URL.createObjectURL(new Blob([bootstrap],{type:'text/javascript'}));
       worker=new Worker(workerURL);
       worker.onmessage=({data})=>{

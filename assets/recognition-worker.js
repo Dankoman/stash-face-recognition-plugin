@@ -5,7 +5,8 @@ const core = self.FaceRecognitionCore;
 let ort, detector, recognizer, embeddings, labels, backend, initialization;
 const asset = path => new URL(path, assetBase).href;
 async function read(path, kind) {
-  const response = await fetch(asset(path), {credentials:'same-origin'});
+  // Gallery snapshots change independently of the cached ONNX models/runtime.
+  const response = await fetch(asset(path), {credentials:'same-origin',cache:'reload'});
   if(!response.ok) throw new Error(`Missing plugin file: ${path} (${response.status})`);
   return kind==='json' ? response.json() : response.arrayBuffer();
 }

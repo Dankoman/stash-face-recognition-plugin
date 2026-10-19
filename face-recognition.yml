@@ -1,6 +1,6 @@
 name: Face Recognition Plugin
 description: Face recognition plugin that can pause scenes, capture frames, display named bounding boxes and add identified performers to a scene
-version: 3.0.4
+version: 3.0.5
 url: https://github.com/Dankoman/stash-face-recognition-plugin
 
 ui:

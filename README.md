@@ -1,8 +1,8 @@
-# Face Recognition Plugin 3.0.4
+# Face Recognition Plugin 3.0.5
 
 A standalone Stash plugin that runs face analysis directly in the browser. The ZIP includes JavaScript, WebAssembly, SCRFD/ArcFace models and a packaged recognition database. No Go service, Python installation, CDN or separate analysis server is required to use the plugin.
 
-Version 3.0.4 refreshes the packaged recognition database with the latest trained and cleaned face data. Install the complete update through Stash to use the new snapshot.
+Version 3.0.5 includes the latest trained and cleaned face data and revalidates the recognition database after updates so browser caches cannot retain an older snapshot. Install the complete update through Stash and reload the browser page.
 
 ## Usage
 
@@ -30,7 +30,7 @@ Select **All** under **Metadata source** to search in this order: **StashDB → 
 
 ## Installation
 
-See [INSTALLATION.md](INSTALLATION.md). Install or upgrade through Stash using `main/index.yml` as the plugin source. GitHub release 3.0.4 includes the complete ZIP with models, runtime and recognition data.
+See [INSTALLATION.md](INSTALLATION.md). Install or upgrade through Stash using `main/index.yml` as the plugin source. GitHub release 3.0.5 includes the complete ZIP with models, runtime and recognition data.
 
 ## Verification
 
@@ -43,6 +43,6 @@ node --test tests/*.test.cjs
 
 `tests/browser-smoke.html` runs the actual packaged models on synthetic media, including under a CSP that permits WebAssembly but not general JavaScript eval. `tests/ui-placement.html` checks button placement using Stash's observed DOM structure. The test server and Node/Python are used only during development.
 
-Verified in Chrome/Linux: models run on CPU, paused video analysis works, existing performers can be selected without ambiguous name searches, and previews appear beside suggestions and disappear after selection. The button appears only in Edit. The 64 automated tests also cover metadata import, settings, the worker and delayed preview loading.
+Verified in Chrome/Linux: models run on CPU, paused video analysis works, existing performers can be selected without ambiguous name searches, and previews appear beside suggestions and disappear after selection. The button appears only in Edit. The 66 automated tests also cover metadata import, settings, worker and gallery cache refresh, and delayed preview loading.
 
 Windows, AMD/Nvidia acceleration, broader recognition accuracy and complete metadata import against live providers have not yet been verified. WebGPU support depends on the browser and drivers; CPU/WebAssembly is used as a fallback.
