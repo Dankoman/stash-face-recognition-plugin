@@ -1,6 +1,8 @@
-# Face Recognition Plugin 3.0.3
+# Face Recognition Plugin 3.0.4
 
 A standalone Stash plugin that runs face analysis directly in the browser. The ZIP includes JavaScript, WebAssembly, SCRFD/ArcFace models and a packaged recognition database. No Go service, Python installation, CDN or separate analysis server is required to use the plugin.
+
+Version 3.0.4 refreshes the packaged recognition database with the latest trained and cleaned face data. Install the complete update through Stash to use the new snapshot.
 
 ## Usage
 
@@ -28,7 +30,7 @@ Select **All** under **Metadata source** to search in this order: **StashDB → 
 
 ## Installation
 
-See [INSTALLATION.md](INSTALLATION.md). Install or upgrade through Stash using `main/index.yml` as the plugin source. GitHub release 3.0.3 includes the complete ZIP with models, runtime and recognition data.
+See [INSTALLATION.md](INSTALLATION.md). Install or upgrade through Stash using `main/index.yml` as the plugin source. GitHub release 3.0.4 includes the complete ZIP with models, runtime and recognition data.
 
 ## Verification
 

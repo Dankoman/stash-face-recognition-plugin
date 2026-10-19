@@ -1,4 +1,4 @@
-# Installing Face Recognition 3.0.3
+# Installing Face Recognition 3.0.4
 
 ## Install and update through Stash
 
@@ -12,7 +12,7 @@ The package contains all analysis files. No separate service or runtime installa
 ## Manually install the complete plugin package
 
 1. Back up the installed plugin folder and its settings.
-2. Extract `face-recognition-3.0.3.zip` from GitHub release 3.0.3 into the existing `face-recognition` plugin folder. Keep `assets/` and its subdirectories; they contain all analysis files.
+2. Extract `face-recognition-3.0.4.zip` from GitHub release 3.0.4 into the existing `face-recognition` plugin folder. Keep `assets/` and its subdirectories; they contain all analysis files.
 3. Click **Reload plugins** in Stash and reload the browser page.
 4. Open a scene, select **Edit**, right-click **Identify** and select **Test analysis engine**.
 5. Check analysis on a paused frame and confirm that no Identify button appears on Details or Settings.
