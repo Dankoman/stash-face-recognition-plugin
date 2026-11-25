@@ -1,7 +1,7 @@
 - id: face-recognition
   name: Face Recognition Plugin
-  version: 3.0.6
-  date: 2026-11-05 12:47:07
-  path: https://github.com/Dankoman/stash-face-recognition-plugin/releases/download/3.0.6/face-recognition-3.0.6.zip
-  sha256: c03662fe495c301068c940efded07f1dc469a0dc300654720aae7afb66ab6b4a
+  version: 3.0.7
+  date: 2026-11-25 02:29:09
+  path: https://github.com/Dankoman/stash-face-recognition-plugin/releases/download/3.0.7/face-recognition-3.0.7.zip
+  sha256: b37081880d9b3cc62cf884a8a1a2dbd674f6e1b71afa1308467ab4c5de27860e
   description: Standalone browser face recognition with packaged models and metadata through Stash
